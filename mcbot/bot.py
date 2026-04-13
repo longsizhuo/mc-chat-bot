@@ -32,6 +32,9 @@ ADVANCEMENT_PATTERN = re.compile(
     r"\[.*?\] \[Server thread/INFO\]: (\w+) has made the advancement \[(.+)\]"
 )
 
+# Polling interval for RCON status checks (seconds)
+POLL_INTERVAL = 15
+
 
 class ChatBot:
     def __init__(self, config: Config):
@@ -48,6 +51,7 @@ class ChatBot:
         self.events = EventHandler(
             bot_name=config.bot.name,
             language=config.bot.language,
+            rcon=self.rcon,
             afk_timeout=afk_timeout,
         )
         self.system_prompt = build_system_prompt(
@@ -96,13 +100,33 @@ class ChatBot:
         """Send a message to the game chat."""
         self.rcon.say(self.bot_name, message)
 
-    def _afk_checker(self):
-        """Background thread to check for AFK players."""
+    def _status_poller(self):
+        """Background thread: poll player states via RCON + check AFK/playtime."""
         while True:
-            time.sleep(30)
-            messages = self.events.check_afk()
-            for msg in messages:
+            time.sleep(POLL_INTERVAL)
+
+            if not self.events.online_players:
+                continue
+
+            # RCON state polling (health, food, dimension, etc.)
+            try:
+                messages = self.events.poll_player_states()
+                for msg in messages:
+                    print(f"[MCBot] Status: {msg}")
+                    self.say(msg)
+            except Exception as e:
+                print(f"[MCBot] Poll error: {e}")
+
+            # AFK check
+            afk_messages = self.events.check_afk()
+            for msg in afk_messages:
                 print(f"[MCBot] AFK: {msg}")
+                self.say(msg)
+
+            # Playtime check
+            playtime_messages = self.events.check_playtime()
+            for msg in playtime_messages:
+                print(f"[MCBot] Playtime: {msg}")
                 self.say(msg)
 
     def run(self):
@@ -113,16 +137,18 @@ class ChatBot:
         print(f"[MCBot] Bot name: {self.bot_name}")
         print(f"[MCBot] AI: {self.config.ai.provider} ({self.config.ai.model})")
         print(f"[MCBot] Log: {log_path}")
-        print(f"[MCBot] Events: death roasts, join greetings, AFK detection")
+        print(f"[MCBot] Status polling every {POLL_INTERVAL}s")
+        print(f"[MCBot] Events: death roasts, PvP, join/leave, AFK, playtime,")
+        print(f"[MCBot]         low HP, hunger, dimension, altitude, level up")
 
         if not log_path.exists():
             print(f"[MCBot] Waiting for log file: {log_path}")
             while not log_path.exists():
                 time.sleep(5)
 
-        # Start AFK checker thread
-        afk_thread = threading.Thread(target=self._afk_checker, daemon=True)
-        afk_thread.start()
+        # Start background status poller
+        poller = threading.Thread(target=self._status_poller, daemon=True)
+        poller.start()
 
         with open(log_path, "r") as f:
             f.seek(0, 2)  # Skip to end
@@ -188,9 +214,5 @@ class ChatBot:
                 if match:
                     player, advancement = match.group(1), match.group(2)
                     print(f"[MCBot] {player} got advancement: {advancement}")
-                    self.events.player_activity[player] = time.time()
-                    lang = self.config.bot.language
-                    if lang == "zh":
-                        self.say(f"恭喜 {player} 解锁成就 [{advancement}]!")
-                    else:
-                        self.say(f"GG {player}! Achievement unlocked: [{advancement}]!")
+                    msg = self.events.on_advancement(player, advancement)
+                    self.say(msg)
