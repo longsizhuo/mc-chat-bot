@@ -1,13 +1,13 @@
-# MCBot - Minecraft AI Chat Bot
+# MCBot - Minecraft AI 聊天机器人
 
-An AI-powered chat bot for Minecraft servers. Players can talk to the bot in-game, and it responds using LLMs (DeepSeek, OpenAI, Claude, Ollama, etc.). The bot can also execute server commands like giving items, teleporting players, and changing the weather.
+Minecraft 服务器 AI 聊天机器人。玩家在游戏内直接跟 AI 对话，AI 还能执行服务器指令（给物品、传送、改天气等）。支持 DeepSeek、OpenAI、Claude、Ollama 等多种模型。
 
-[中文说明](#中文说明)
+[English](#english)
 
-## What Can It Do?
+## 它能做什么？
 
 ```
-You (in Minecraft chat)          MCBot
+你（游戏聊天）                      MCBot
 ─────────────────────────────────────────────
 "给我64个钻石"                →  好的！钻石来咯~ [+64 Diamond]
 "天黑了帮我改白天"             →  阳光普照！[time set day]
@@ -20,58 +20,59 @@ You (in Minecraft chat)          MCBot
 "设置出生点"                  →  出生点已设置在当前位置
 ```
 
-Players speak naturally, the AI understands intent, executes RCON commands, and replies in chat. All in one message.
+玩家用自然语言说话，AI 理解意图后执行 RCON 指令并回复。一条消息搞定。
 
-## Screenshots
+## 截图
 
-| AI Chat | Skills in Action |
-|---------|-----------------|
-| ![AI Chat](docs/screenshots/chat.png) | ![Skills](docs/screenshots/skills.png) |
+| AI 聊天 | 能力演示 |
+|---------|---------|
+| ![AI Chat](docs/screenshots/chat.png) | ![Abilities](docs/screenshots/abilities.png) |
 
-| Death Roasts | AFK Detection |
-|-------------|---------------|
+| 死亡吐槽 | 挂机检测 |
+|----------|---------|
 | ![Death](docs/screenshots/death.png) | ![AFK](docs/screenshots/afk.png) |
 
-| Welcome Message | Backup System |
-|----------------|---------------|
+| 欢迎消息 | 备份系统 |
+|----------|---------|
 | ![Welcome](docs/screenshots/welcome.png) | ![Backup](docs/screenshots/backup.png) |
 
-> Replace screenshots with your own! Put them in `docs/screenshots/`.
+> 用你自己的截图替换！放到 `docs/screenshots/` 目录下。
 
-## Features
+## 功能
 
-- **AI Chat** - Talk to the bot in Minecraft chat, powered by your choice of LLM
-- **Skills** - The bot can give items, teleport, change time/weather, apply effects, and more via RCON
-- **Event Reactions** - Pre-written responses for deaths (roasts!), joins, AFK detection, and achievements (no API cost)
-- **World Backup** - Automatic backups based on in-game days, not real-time
-- **Multi-provider** - Supports DeepSeek, OpenAI, Anthropic Claude, Ollama (local), or any OpenAI-compatible API
-- **Bilingual** - Chinese and English support
+- **AI 聊天** - 在游戏聊天框直接跟 AI 对话
+- **能力系统** - AI 可以给物品、传送、改时间天气、加效果、附魔等（通过 RCON）
+- **事件反应** - 玩家死亡吐槽、加入欢迎、挂机提醒、成就祝贺（不消耗 API）
+- **游戏日备份** - 按游戏内天数自动备份世界存档（睡觉也算）
+- **多模型支持** - DeepSeek、OpenAI、Claude、Ollama（本地免费）
+- **中英双语** - 支持中文和英文
+- **Agent Skill** - 兼容 [Agent Skills](https://agentskills.io) 标准，AI 编程助手可自动部署
 
-## How It Works
+## 工作原理
 
 ```
-Player chats in game
+玩家在游戏内聊天
         │
         ▼
-MCBot monitors server log (logs/latest.log)
+MCBot 监控服务器日志 (logs/latest.log)
         │
-        ├─ Chat message → Send to AI → Get reply → RCON say + execute [CMD:...] tags
-        ├─ Player join  → Random welcome message (no AI)
-        ├─ Player death → Random roast message (no AI)
-        ├─ Player AFK   → Reminder after timeout (no AI)
-        └─ Advancement  → Congratulations (no AI)
+        ├─ 聊天消息 → 发给 AI → 获取回复 → RCON say + 执行 [CMD:...] 标签
+        ├─ 玩家加入 → 随机欢迎语（不调 AI）
+        ├─ 玩家死亡 → 随机吐槽语（不调 AI）
+        ├─ 玩家挂机 → 超时提醒（不调 AI）
+        └─ 解锁成就 → 祝贺消息（不调 AI）
 ```
 
-## Requirements
+## 环境要求
 
 - Python 3.10+
-- Minecraft Java Edition server with **RCON enabled**
-- [mcrcon](https://github.com/Tiiffi/mcrcon) CLI tool
-- An AI API key (or Ollama for local models)
+- Minecraft Java 版服务器，**RCON 已开启**
+- [mcrcon](https://github.com/Tiiffi/mcrcon) 命令行工具
+- AI API Key（或 Ollama 本地模型）
 
-## Quick Start
+## 快速开始
 
-### 1. Install mcrcon
+### 1. 安装 mcrcon
 
 ```bash
 git clone https://github.com/Tiiffi/mcrcon.git
@@ -79,19 +80,19 @@ cd mcrcon && gcc -o mcrcon mcrcon.c
 sudo cp mcrcon /usr/local/bin/
 ```
 
-### 2. Enable RCON on your Minecraft server
+### 2. 开启服务器 RCON
 
-Edit `server.properties`:
+编辑 Minecraft 服务器的 `server.properties`：
 
 ```properties
 enable-rcon=true
 rcon.port=25575
-rcon.password=your-password-here
+rcon.password=你的密码
 ```
 
-Restart the server.
+重启服务器。
 
-### 3. Install MCBot
+### 3. 安装 MCBot
 
 ```bash
 git clone https://github.com/longsizhuo/mc-chat-bot.git
@@ -99,36 +100,36 @@ cd mc-chat-bot
 pip install -r requirements.txt
 ```
 
-### 4. Configure
+### 4. 配置
 
 ```bash
 cp config.example.yml config.yml
 ```
 
-Edit `config.yml` with your settings:
+编辑 `config.yml`：
 
 ```yaml
-server_dir: "/path/to/your/minecraft-server"
+server_dir: "/你的/minecraft/服务器/路径"
 
 ai:
-  provider: "deepseek"  # or openai, anthropic, ollama, custom
-  api_key: "sk-your-key"
+  provider: "deepseek"  # 或 openai, anthropic, ollama, custom
+  api_key: "sk-你的密钥"
 
 rcon:
-  password: "your-rcon-password"
+  password: "你的rcon密码"
 
 bot:
-  name: "MCBot"
-  language: "zh"  # zh or en
+  name: "小方"
+  language: "zh"  # zh 中文 / en 英文
 ```
 
-### 5. Run
+### 5. 运行
 
 ```bash
 python run.py
 ```
 
-Or run as a systemd service:
+或设为 systemd 服务（开机自启）：
 
 ```bash
 sudo tee /etc/systemd/system/mcbot.service > /dev/null << EOF
@@ -152,126 +153,131 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mcbot.service
 ```
 
-## AI Providers
+## AI 模型支持
 
-| Provider | Config `provider` | API Key Required | Notes |
-|----------|------------------|-----------------|-------|
-| DeepSeek | `deepseek` | Yes | Cheap and good for Chinese |
-| OpenAI | `openai` | Yes | GPT-4o-mini by default |
-| Anthropic | `anthropic` | Yes | Claude |
-| Ollama | `ollama` | No | Local models, free |
-| Custom | `custom` | Depends | Any OpenAI-compatible API |
+| 模型 | 配置 `provider` | 需要 API Key | 备注 |
+|------|----------------|-------------|------|
+| DeepSeek | `deepseek` | 是 | 便宜，中文好 |
+| OpenAI | `openai` | 是 | 默认 GPT-4o-mini |
+| Claude | `anthropic` | 是 | Anthropic |
+| Ollama | `ollama` | 否 | 本地模型，免费 |
+| 自定义 | `custom` | 看情况 | 任何 OpenAI 兼容 API |
 
-### Using Ollama (free, local)
+### 使用 Ollama（免费本地模型）
 
 ```bash
-# Install Ollama
+# 安装 Ollama
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull llama3
 
 # config.yml
 ai:
   provider: "ollama"
-  model: "llama3"  # or any model you pulled
+  model: "llama3"
 ```
 
-## Bot Skills
+## Bot 能力
 
-> ![Skills Demo](docs/screenshots/skills-demo.png)
-> *Player asks the bot for diamonds, and the bot gives them via RCON*
+> ![Abilities Demo](docs/screenshots/abilities-demo.png)
+> *玩家请求钻石，Bot 通过 RCON 给予*
 
-The AI can execute these commands by including `[CMD:...]` tags in its response:
+AI 在回复中插入 `[CMD:...]` 标签来执行指令：
 
-| Skill | Command | Example |
-|-------|---------|---------|
-| Give Items | `give <player> <item> <amount>` | "give me 64 diamonds" |
-| Set Time | `time set <value>` | "make it daytime" |
-| Set Weather | `weather <type>` | "stop the rain" |
-| Teleport | `tp <player> <x> <y> <z>` | "tp me to 0 64 0" |
-| Game Mode | `gamemode <mode> <player>` | "give me creative mode" |
-| Summon | `summon <entity> ~ ~ ~` | "summon a horse" |
-| Effects | `effect give <player> <effect> <seconds>` | "give me night vision" |
-| Enchant | `enchant <player> <enchant> <level>` | "enchant my sword with sharpness" |
-| Spawnpoint | `spawnpoint <player>` | "set my spawn here" |
+| 能力 | 指令 | 玩家示例 |
+|------|------|---------|
+| 给物品 | `give <玩家> <物品> <数量>` | "给我64个钻石" |
+| 改时间 | `time set <值>` | "帮我改成白天" |
+| 改天气 | `weather <类型>` | "别下雨了" |
+| 传送 | `tp <玩家> <x> <y> <z>` | "传送我到 0 64 0" |
+| 游戏模式 | `gamemode <模式> <玩家>` | "给我创造模式" |
+| 生成生物 | `summon <生物> ~ ~ ~` | "召唤一匹马" |
+| 施加效果 | `effect give <玩家> <效果> <秒>` | "给我夜视" |
+| 附魔 | `enchant <玩家> <附魔> <等级>` | "附魔锋利5" |
+| 设置出生点 | `spawnpoint <玩家>` | "设置出生点" |
 
-## Event Reactions (Free, No AI)
+## 事件反应（免费，不调 AI）
 
 > ![Events Demo](docs/screenshots/events-demo.png)
-> *Death roasts and AFK detection in action*
+> *死亡吐槽和挂机检测*
 
-These reactions use pre-written messages and don't call the AI API:
+这些反应使用预设消息，不调用 AI API：
 
-- **Death roasts** - Different messages based on death cause (lava, creeper, fall, etc.)
-- **Welcome messages** - Random greetings when players join
-- **AFK detection** - Warns players after configurable idle time
-- **AFK return** - Welcomes back players who were AFK
-- **Achievements** - Congratulates players on advancements
+- **死亡吐槽** - 根据死因不同有不同吐槽（岩浆、苦力怕、摔落...）
+- **欢迎消息** - 玩家加入时随机欢迎
+- **挂机检测** - 超过设定时间提醒
+- **挂机回归** - AFK 玩家回来欢迎
+- **成就祝贺** - 解锁进度时自动祝贺
 
-## World Backup
+## 世界备份
 
-Backs up the `world/` directory based on **in-game days**, not real time. This means:
-- Sleeping advances the backup schedule
-- Server pauses (no players online) don't waste backups
-- Configurable retention (default: 10 backups)
+按**游戏内天数**备份 `world/` 目录，而不是现实时间：
+- 睡觉跳过的时间也算（推进备份进度）
+- 服务器暂停时不浪费备份
+- 可配置保留数量（默认 10 份）
 
 ```yaml
 backup:
   enabled: true
-  check_interval: 60   # check every 60 seconds
-  max_backups: 10      # keep last 10 backups
+  check_interval: 60   # 每 60 秒检查一次
+  max_backups: 10      # 保留最近 10 份
 ```
 
-To restore a backup:
+回档方法：
 
 ```bash
-# Stop the server
+# 停服
 sudo systemctl stop minecraft
 
-# Replace world
-cd /path/to/minecraft-server
+# 替换存档
+cd /你的/minecraft/服务器
 mv world world.old
 tar xzf backups/world_day42_20260413_120000.tar.gz
 
-# Restart
+# 重启
 sudo systemctl start minecraft
 ```
 
-## CLI Options
+## 命令行参数
 
 ```bash
-python run.py -c config.yml          # Use specific config file
-python run.py --no-backup            # Disable backup system
-python run.py --backup-only          # Run backup only, no chat bot
+python run.py -c config.yml          # 指定配置文件
+python run.py --no-backup            # 不启用备份
+python run.py --backup-only          # 只跑备份，不启动聊天
 ```
 
-## License
+## Agent Skill
+
+本项目包含符合 [Agent Skills](https://agentskills.io) 标准的技能定义（`deploy-mcbot/SKILL.md`）。支持 Agent Skills 的 AI 编程工具（Claude Code、Cursor、Copilot 等）可以自动识别并帮你部署配置 MCBot。
+
+## 许可证
 
 MIT
 
 ---
 
-# 中文说明
+# English
 
-MCBot 是一个 Minecraft 服务器 AI 聊天机器人。玩家可以在游戏内直接跟 AI 对话，AI 还能执行服务器指令（给物品、传送、改天气等）。
+MCBot is an AI-powered chat bot for Minecraft servers. Players talk to the bot in-game, and it responds using LLMs (DeepSeek, OpenAI, Claude, Ollama, etc.). The bot can execute server commands like giving items, teleporting players, and changing the weather via RCON.
 
-## 功能
+## Features
 
-- **AI 聊天** - 在游戏聊天框直接跟 AI 对话
-- **技能系统** - AI 可以给物品、传送、改时间天气、加效果、附魔等
-- **事件反应** - 玩家死亡吐槽、加入欢迎、挂机提醒、成就祝贺（不消耗 API）
-- **游戏日备份** - 按游戏内天数自动备份世界存档
-- **多模型支持** - DeepSeek、OpenAI、Claude、Ollama（本地免费）
-- **中英双语** - 支持中文和英文
+- **AI Chat** - Talk to the bot in Minecraft chat, powered by your choice of LLM
+- **Abilities** - Give items, teleport, change time/weather, apply effects, enchant via RCON
+- **Event Reactions** - Death roasts, join greetings, AFK detection, achievements (no API cost)
+- **World Backup** - Automatic backups based on in-game days, not real-time
+- **Multi-provider** - DeepSeek, OpenAI, Anthropic Claude, Ollama (local), or any OpenAI-compatible API
+- **Bilingual** - Chinese and English support
+- **Agent Skill** - Compatible with [Agent Skills](https://agentskills.io) standard
 
-## 快速开始
+## Quick Start
 
 ```bash
 git clone https://github.com/longsizhuo/mc-chat-bot.git
 cd mc-chat-bot
 pip install -r requirements.txt
 cp config.example.yml config.yml
-# 编辑 config.yml 填入你的配置
+# Edit config.yml with your settings
 python run.py
 ```
 
-详细说明见上方英文文档。
+See Chinese documentation above for detailed setup instructions.

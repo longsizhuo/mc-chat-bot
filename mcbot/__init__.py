@@ -1,3 +1,3 @@
-"""MCBot - Minecraft AI Chat Bot with RCON skills."""
+"""MCBot - Minecraft AI Chat Bot with RCON abilities."""
 
 __version__ = "0.1.0"

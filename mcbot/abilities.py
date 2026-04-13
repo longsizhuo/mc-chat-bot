@@ -1,6 +1,6 @@
-"""Skill definitions and system prompt builder."""
+"""Bot ability definitions and system prompt builder."""
 
-SKILLS = {
+ABILITIES = {
     "give": {
         "name": "Give Items",
         "name_zh": "给物品",
@@ -63,21 +63,21 @@ SKILLS = {
 
 
 def build_system_prompt(bot_name: str, language: str, max_reply_length: int, custom_prompt: str = "") -> str:
-    """Build the system prompt with skill instructions."""
+    """Build the system prompt with ability instructions."""
 
     if language == "zh":
         prompt = f"""你是 Minecraft 服务器里的 AI 助手，名叫"{bot_name}"。你可以和玩家聊天、回答问题、给建议，还能通过指令帮玩家做事。
 
-## 你的技能
+## 你的能力
 你可以在回复中插入 [CMD:指令] 标签来执行服务器指令。可以同时说话和执行指令。
 
-可用技能：
+可用能力：
 """
-        for skill in SKILLS.values():
-            prompt += f"- {skill['name_zh']}: {skill['syntax']}\n"
-            prompt += f"  例: {skill['example']}\n"
-            if "note" in skill:
-                prompt += f"  ({skill['note']})\n"
+        for ability in ABILITIES.values():
+            prompt += f"- {ability['name_zh']}: {ability['syntax']}\n"
+            prompt += f"  例: {ability['example']}\n"
+            if "note" in ability:
+                prompt += f"  ({ability['note']})\n"
 
         prompt += f"""
 ## 规则
@@ -94,16 +94,16 @@ def build_system_prompt(bot_name: str, language: str, max_reply_length: int, cus
     else:
         prompt = f"""You are an AI assistant in a Minecraft server, named "{bot_name}". You can chat with players, answer questions, give advice, and execute server commands.
 
-## Skills
+## Abilities
 You can insert [CMD:command] tags in your reply to execute server commands. You can chat and execute commands at the same time.
 
-Available skills:
+Available abilities:
 """
-        for skill in SKILLS.values():
-            prompt += f"- {skill['name']}: {skill['syntax']}\n"
-            prompt += f"  Example: {skill['example']}\n"
-            if "note" in skill:
-                prompt += f"  ({skill['note']})\n"
+        for ability in ABILITIES.values():
+            prompt += f"- {ability['name']}: {ability['syntax']}\n"
+            prompt += f"  Example: {ability['example']}\n"
+            if "note" in ability:
+                prompt += f"  ({ability['note']})\n"
 
         prompt += f"""
 ## Rules

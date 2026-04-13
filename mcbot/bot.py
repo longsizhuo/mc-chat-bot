@@ -9,7 +9,7 @@ from .config import Config
 from .events import EventHandler
 from .providers import AIProvider
 from .rcon import RCON
-from .skills import build_system_prompt
+from .abilities import build_system_prompt
 
 CMD_PATTERN = re.compile(r"\[CMD:(.*?)\]")
 

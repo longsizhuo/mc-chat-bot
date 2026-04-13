@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MCBot - Minecraft AI Chat Bot with RCON skills."""
+"""MCBot - Minecraft AI Chat Bot with RCON abilities."""
 
 import argparse
 import threading
