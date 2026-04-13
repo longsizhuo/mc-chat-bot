@@ -1,0 +1,51 @@
+# MCBot Configuration
+# Copy this file to config.yml and edit it.
+
+# ===== Minecraft Server =====
+server_dir: "/path/to/your/minecraft-server"
+log_file: "logs/latest.log"
+
+# ===== AI Provider =====
+ai:
+  # Supported: deepseek, openai, anthropic, ollama, custom
+  provider: "deepseek"
+  api_key: "sk-your-api-key-here"
+
+  # Optional overrides (auto-filled based on provider):
+  # base_url: "https://api.deepseek.com"
+  # model: "deepseek-chat"
+
+  # Generation settings
+  temperature: 0.8
+  max_tokens: 200
+
+# ===== RCON =====
+rcon:
+  host: "localhost"
+  port: 25575
+  password: "your-rcon-password"
+
+# ===== Bot Settings =====
+bot:
+  name: "MCBot"         # Bot display name in chat
+  language: "zh"         # zh or en
+  max_reply_length: 60   # Max characters per reply
+  max_history: 20        # Chat history per player
+
+  # Optional: extra system prompt instructions
+  # system_prompt: "You are extra friendly and love to make puns."
+
+# ===== Events (no AI needed) =====
+events:
+  # React to player events with pre-written messages (no API cost)
+  player_join: true
+  player_death: true
+  player_afk: true
+  afk_timeout: 300       # Seconds before a player is considered AFK
+
+# ===== World Backup =====
+backup:
+  enabled: true
+  check_interval: 60     # Seconds between game-day checks
+  max_backups: 10        # Max backups to keep
+  backup_dir: "backups"
