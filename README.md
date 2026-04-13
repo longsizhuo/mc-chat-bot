@@ -70,6 +70,8 @@ MCBot 监控服务器日志 (logs/latest.log)
 - [mcrcon](https://github.com/Tiiffi/mcrcon) 命令行工具
 - AI API Key（或 Ollama 本地模型）
 
+> **新手？** 看 [超详细部署指南](docs/QUICK_START.md)，从零开始手把手教你，包括 Python 安装、RCON 开启、常见问题解决。
+
 ## 快速开始
 
 ### 1. 安装 mcrcon
