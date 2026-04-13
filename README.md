@@ -4,6 +4,24 @@ An AI-powered chat bot for Minecraft servers. Players can talk to the bot in-gam
 
 [中文说明](#中文说明)
 
+## What Can It Do?
+
+```
+You (in Minecraft chat)          MCBot
+─────────────────────────────────────────────
+"给我64个钻石"                →  好的！钻石来咯~ [+64 Diamond]
+"天黑了帮我改白天"             →  阳光普照！[time set day]
+"别下雨了"                    →  天气已放晴~ [weather clear]
+"传送我到 0 64 0"             →  嗖！已传送 [tp → 0 64 0]
+"给我创造模式"                →  创造模式已开启！尽情造吧
+"召唤一匹马"                  →  马已就位，请上马！[summon horse]
+"给我夜视"                    →  夜视效果已添加，暗处无忧
+"附魔锋利5"                   →  锋利 V 已附魔，砍怪去吧！
+"设置出生点"                  →  出生点已设置在当前位置
+```
+
+Players speak naturally, the AI understands intent, executes RCON commands, and replies in chat. All in one message.
+
 ## Screenshots
 
 | AI Chat | Skills in Action |
