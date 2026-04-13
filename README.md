@@ -195,18 +195,49 @@ AI 在回复中插入 `[CMD:...]` 标签来执行指令：
 | 附魔 | `enchant <玩家> <附魔> <等级>` | "附魔锋利5" |
 | 设置出生点 | `spawnpoint <玩家>` | "设置出生点" |
 
-## 事件反应（免费，不调 AI）
+## 事件系统（免费，不调 AI）
 
 > ![Events Demo](docs/screenshots/events-demo.png)
 > *死亡吐槽和挂机检测*
 
-这些反应使用预设消息，不调用 AI API：
+所有事件反应使用预设消息，**不消耗 AI API 额度**。
 
-- **死亡吐槽** - 根据死因不同有不同吐槽（岩浆、苦力怕、摔落...）
-- **欢迎消息** - 玩家加入时随机欢迎
-- **挂机检测** - 超过设定时间提醒
-- **挂机回归** - AFK 玩家回来欢迎
-- **成就祝贺** - 解锁进度时自动祝贺
+### 日志被动检测
+
+Bot 监控服务器日志，自动响应以下事件：
+
+| 事件 | 触发条件 | 文案数量 | 说明 |
+|------|---------|---------|------|
+| 死亡吐槽 | 玩家死亡 | **85条**（16种死因） | 岩浆/苦力怕/摔死/溺水/仙人掌等各有专属吐槽 |
+| 死亡连击 | 30分钟内多次死亡 | 在第 3/5/8/10 次触发 | 越死越狠，10次解锁"死神的朋友" |
+| PvP 击杀 | 玩家击杀玩家 | 6条 | 自动区分玩家 vs 怪物 |
+| 首次加入 | 从未见过的玩家名 | 3条 | 新人专属欢迎 + 引导 |
+| 加入欢迎 | 玩家上线 | 6条 | 老玩家随机欢迎语 |
+| 频繁断线 | 30秒内断连 ≥ 3次 | 4条 | 提示网络问题 |
+| 成就祝贺 | 解锁进度 | 5条 | 随机祝贺消息 |
+
+### RCON 主动轮询（每 15 秒）
+
+Bot 通过 RCON 查询玩家实时状态，检测变化并反应：
+
+| 状态 | 触发条件 | 文案数量 | 说明 |
+|------|---------|---------|------|
+| 低血量预警 | HP ≤ 6（3颗心以下） | 6条 | 从满血降到低血时触发 |
+| 饥饿提醒 | 饱食度 ≤ 6 | 6条 | 从饱降到饿时触发 |
+| 进入地狱 | 维度变为 `the_nether` | 5条 | 提醒带金甲防猪灵 |
+| 进入末地 | 维度变为 `the_end` | 5条 | 祝好运、小心虚空 |
+| 回到主世界 | 维度变为 `overworld` | 3条 | 欢迎回家 |
+| 高空警告 | Y > 200 | 3条 | 从低处升到高空时触发 |
+| 深层警告 | Y < -30 | 4条 | 进入深暗之域提醒小心 Warden |
+| 升级通知 | 经验等级到 5/10/15/20/25/30 | 6条 | 30级特别提醒去附魔 |
+
+### 社交/健康类
+
+| 功能 | 触发条件 | 文案数量 | 说明 |
+|------|---------|---------|------|
+| 挂机检测 | 超过设定时间无活动 | 7条 | 默认 5 分钟，可配置 |
+| 挂机回归 | AFK 玩家恢复活动 | 5条 | 聊天或移动时触发 |
+| 游玩时长提醒 | 连续在线 1/2/3/4 小时 | 8条 | 提醒休息，越久越严肃 |
 
 ## 世界备份
 
@@ -263,7 +294,7 @@ MCBot is an AI-powered chat bot for Minecraft servers. Players talk to the bot i
 
 - **AI Chat** - Talk to the bot in Minecraft chat, powered by your choice of LLM
 - **Abilities** - Give items, teleport, change time/weather, apply effects, enchant via RCON
-- **Event Reactions** - Death roasts, join greetings, AFK detection, achievements (no API cost)
+- **Event Reactions** - 85+ death roasts, PvP, death streaks, join/leave, AFK, low HP/hunger, dimension change, altitude, level up, playtime reminders (all free, no API cost)
 - **World Backup** - Automatic backups based on in-game days, not real-time
 - **Multi-provider** - DeepSeek, OpenAI, Anthropic Claude, Ollama (local), or any OpenAI-compatible API
 - **Bilingual** - Chinese and English support
