@@ -143,6 +143,77 @@ class ChatBot:
         self.memory.append_history(player, "assistant", reply)
         return reply
 
+    MAX_TOOL_ROUNDS = 3
+
+    def converse(self, player: str, message: str, from_qq: bool = False) -> str:
+        """Full tool-use loop: AI reply → execute [CMD:...] → feed results back → repeat.
+
+        Stops when the AI emits no commands, or after MAX_TOOL_ROUNDS rounds.
+        Returns the concatenated visible text from all rounds.
+        """
+        import re as _re
+
+        self.memory.append_history(player, "user", f"[{player}]: {message}")
+        base = self.qq_system_prompt if from_qq else self.system_prompt
+        prompt = self._build_prompt_with_facts(base, player)
+
+        visible_parts: list[str] = []
+
+        for round_idx in range(self.MAX_TOOL_ROUNDS):
+            history = self.memory.get_history(player)
+            reply = self.ai.chat(history, prompt)
+            if reply is None:
+                break
+
+            self.memory.append_history(player, "assistant", reply)
+
+            commands = CMD_PATTERN.findall(reply)
+            text = CMD_PATTERN.sub("", reply).strip()
+            if text:
+                visible_parts.append(text)
+
+            if not commands:
+                break
+
+            results: list[str] = []
+            for cmd in commands:
+                cmd = cmd.strip()
+
+                m = REMEMBER_PATTERN.match(cmd)
+                if m:
+                    target, fact = m.group(1), m.group(2).strip()
+                    added = self.memory.add_fact(target, fact)
+                    print(f"[MCBot] {'Remembered' if added else 'Already knew'}: {target} -> {fact}")
+                    results.append(f"{cmd} -> {'ok' if added else 'duplicate'}")
+                    continue
+                m = FORGET_PATTERN.match(cmd)
+                if m:
+                    target, key = m.group(1), m.group(2).strip()
+                    removed = self.memory.forget_fact(target, key)
+                    print(f"[MCBot] {'Forgot' if removed else 'No match to forget'}: {target} / {key}")
+                    results.append(f"{cmd} -> {'ok' if removed else 'no match'}")
+                    continue
+
+                print(f"[MCBot] Executing: /{cmd}")
+                result = self.rcon.send(cmd) or ""
+                result = _re.sub(r"\x1b\[[0-9;]*m|\[0m", "", result).strip()
+                print(f"[MCBot] Result: {result}")
+                results.append(f"{cmd} -> {result if result else 'ok'}")
+
+            # Feed results back for next round. If this was the last round,
+            # still surface the last visible results inline.
+            if round_idx == self.MAX_TOOL_ROUNDS - 1:
+                # No more rounds to act on results — append condensed info to text
+                brief = " | ".join(r for r in results if r)
+                if brief:
+                    visible_parts.append(brief)
+                break
+
+            result_msg = "[CMD_RESULT]\n" + "\n".join(results)
+            self.memory.append_history(player, "user", result_msg)
+
+        return " ".join(p for p in visible_parts if p).strip() or "..."
+
     def process_reply(self, reply: str) -> str:
         """Extract and execute [CMD:...] tags, return text-only reply with command results."""
         import re as _re
@@ -196,12 +267,11 @@ class ChatBot:
         # Show QQ message in MC game chat
         self.rcon.say(f"QQ·{nickname}", clean_msg)
 
-        # Get AI reply with longer limit for QQ
+        # Get AI reply with longer limit for QQ (tool-use loop)
         qq_player = f"QQ:{nickname}"
-        reply = self.get_reply(qq_player, clean_msg, from_qq=True)
-        print(f"[MCBot] QQ {nickname} -> {reply}")
+        text = self.converse(qq_player, clean_msg, from_qq=True)
+        print(f"[MCBot] QQ {nickname} -> {text}")
 
-        text = self.process_reply(reply)
         if text:
             # Send reply to MC game chat
             self.rcon.say(self.bot_name, text)
@@ -293,10 +363,9 @@ class ChatBot:
                     if return_msg:
                         self.say(return_msg)
 
-                    reply = self.get_reply(player, message)
-                    print(f"[MCBot] -> {reply}")
+                    text = self.converse(player, message)
+                    print(f"[MCBot] -> {text}")
 
-                    text = self.process_reply(reply)
                     if text:
                         self.say(text)
                     continue

@@ -31,8 +31,9 @@ ABILITIES = {
     "tp": {
         "name": "Teleport",
         "name_zh": "传送",
-        "syntax": "[CMD:tp <player> <x> <y> <z>]",
-        "example": "[CMD:tp longlong 0 64 0]",
+        "syntax": "[CMD:tp <player> <x> <y> <z>] OR [CMD:tp <player> <target_player>]",
+        "example": "[CMD:tp longlong ridiculouspasser]  (to another player)  OR  [CMD:tp longlong 0 64 0]  (to coords)",
+        "note": "To teleport to another player, use their EXACT full name (run [CMD:list] first if unsure).",
     },
     "gamemode": {
         "name": "Game Mode",
@@ -145,7 +146,9 @@ def build_system_prompt(bot_name: str, language: str, max_reply_length: int, cus
   - 先描述你要建什么风格（几层、多大），然后连续发多个 [CMD:...] 把它盖出来
 - 如果玩家要求危险操作（如清空背包、杀死自己、破坏地形），先确认
 - 可以在一条回复里同时包含多个 [CMD:...] 标签
-- [CMD:...] 标签会被自动执行，玩家不会看到标签本身，只看到你的文字回复"""
+- [CMD:...] 标签会被自动执行，玩家不会看到标签本身，只看到你的文字回复
+- **多步任务（tool use）**：如果你缺信息（玩家全名、在线列表、时间、坐标等），先发查询命令（如 [CMD:list]），指令结果会作为一条 [CMD_RESULT] 消息返回给你，然后你可以在下一轮基于结果采取行动。例如"送我去 xxx"模糊匹配时：第 1 轮发 [CMD:list] 查玩家名 → 第 2 轮看到结果后发 [CMD:tp longlong <完整玩家名>]。不要猜、不要编玩家名
+- 要执行的所有确定命令尽量放在一条回复里（减少延迟），只有当后续命令依赖前一条的结果时才分两轮"""
 
     else:
         prompt = f"""You are an AI assistant in a Minecraft server, named "{bot_name}". You can chat with players, answer questions, give advice, and execute server commands.
@@ -176,7 +179,9 @@ Available abilities:
   - Use `fill ... hollow` for walls+roof, `setblock` for doors, torches, decorations
 - Confirm before dangerous operations (clearing inventory, killing player, destroying terrain)
 - You can include multiple [CMD:...] tags in one reply
-- [CMD:...] tags are auto-executed; players only see your text reply"""
+- [CMD:...] tags are auto-executed; players only see your text reply
+- **Multi-step tool use**: If you lack info (full player name, online list, time, coords), emit a query command first (e.g. [CMD:list]). The result is returned to you as a [CMD_RESULT] message, and you can act on it in the next round. Example — "tp me to xxx" with a partial name: round 1 emit [CMD:list] → round 2, seeing the result, emit [CMD:tp <user> <full_name>]. Never invent or guess player names.
+- Batch independent commands into one reply to reduce latency; only split across rounds when a later command genuinely depends on an earlier result."""
 
     if custom_prompt:
         prompt += f"\n\n## Additional Instructions\n{custom_prompt}"
