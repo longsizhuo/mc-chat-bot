@@ -87,6 +87,20 @@ ABILITIES = {
         "example": "[CMD:clone ~-5 ~ ~-5 ~5 ~4 ~5 ~10 ~ ~]",
         "note": "copies an existing structure to a new location",
     },
+    "remember": {
+        "name": "Remember Fact",
+        "name_zh": "记住事实",
+        "syntax": "[CMD:remember <player> <fact>]",
+        "example": "[CMD:remember longlong 喜欢橡木田园风格的房子]",
+        "note": "Stores a long-term fact about a player (preferences, past builds, promises, running jokes). Persists across restarts. Use proactively when you learn something worth remembering.",
+    },
+    "forget": {
+        "name": "Forget Fact",
+        "name_zh": "忘记事实",
+        "syntax": "[CMD:forget <player> <keyword or index>]",
+        "example": "[CMD:forget longlong 橡木]",
+        "note": "Removes a stored fact by matching text or index (0-based).",
+    },
     "execute_at": {
         "name": "Execute At Player",
         "name_zh": "在玩家位置执行",

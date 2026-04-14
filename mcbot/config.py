@@ -64,6 +64,8 @@ class BotConfig:
     max_reply_length: int = 60
     max_history: int = 20
     system_prompt: str = ""
+    memory_dir: str = "memory"
+    max_facts: int = 50
 
 
 @dataclass
@@ -143,6 +145,8 @@ def load_config(path: str) -> Config:
         max_reply_length=b.get("max_reply_length", 60),
         max_history=b.get("max_history", 20),
         system_prompt=b.get("system_prompt", ""),
+        memory_dir=b.get("memory_dir", "memory"),
+        max_facts=b.get("max_facts", 50),
     )
 
     # Backup

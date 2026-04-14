@@ -12,8 +12,11 @@ from .rcon import RCON
 from .abilities import build_system_prompt
 from .stats import PlayerStats
 from .qq_bridge import QQBridge
+from .memory import Memory
 
 CMD_PATTERN = re.compile(r"\[CMD:(.*?)\]")
+REMEMBER_PATTERN = re.compile(r"^remember\s+(\S+)\s+(.+)$", re.IGNORECASE)
+FORGET_PATTERN = re.compile(r"^forget\s+(\S+)\s+(.+)$", re.IGNORECASE)
 
 # Rare advancements worth forwarding to QQ
 RARE_ADVANCEMENTS = {
@@ -103,27 +106,41 @@ class ChatBot:
             max_reply_length=500,
             custom_prompt="你现在在QQ群里和玩家聊天，不受Minecraft聊天框字数限制，可以写更详细的回复。",
         )
-        self.chat_histories: dict[str, list[dict]] = {}
+        memory_path = Path(config.bot.memory_dir)
+        if not memory_path.is_absolute():
+            memory_path = Path(config.server_dir) / memory_path
+        self.memory = Memory(
+            memory_dir=memory_path,
+            max_history=config.bot.max_history,
+            max_facts=config.bot.max_facts,
+        )
         self.max_history = config.bot.max_history
+        print(f"[MCBot] Memory: {memory_path}")
+
+    def _build_prompt_with_facts(self, base_prompt: str, player: str) -> str:
+        facts = self.memory.get_facts(player)
+        if not facts:
+            return base_prompt
+        facts_text = "\n".join(f"- {f}" for f in facts)
+        if self.config.bot.language == "zh":
+            header = f"\n\n## 关于玩家 {player} 你记得的事（长期记忆）\n{facts_text}\n重要：利用这些信息，主动体现你记得他。需要新增记忆时用 [CMD:remember {player} <内容>]，过时了用 [CMD:forget {player} <关键词或序号>]。"
+        else:
+            header = f"\n\n## What you remember about {player} (long-term memory)\n{facts_text}\nUse these facts naturally. To add: [CMD:remember {player} <fact>]. To remove: [CMD:forget {player} <keyword or index>]."
+        return base_prompt + header
 
     def get_reply(self, player: str, message: str, from_qq: bool = False) -> str:
         """Get AI reply for a player message."""
-        if player not in self.chat_histories:
-            self.chat_histories[player] = []
+        history = self.memory.append_history(
+            player, "user", f"[{player}]: {message}"
+        )
 
-        history = self.chat_histories[player]
-        history.append({"role": "user", "content": f"[{player}]: {message}"})
-
-        if len(history) > self.max_history:
-            self.chat_histories[player] = history[-self.max_history :]
-            history = self.chat_histories[player]
-
-        prompt = self.qq_system_prompt if from_qq else self.system_prompt
+        base = self.qq_system_prompt if from_qq else self.system_prompt
+        prompt = self._build_prompt_with_facts(base, player)
         reply = self.ai.chat(history, prompt)
         if reply is None:
             return "..."
 
-        history.append({"role": "assistant", "content": reply})
+        self.memory.append_history(player, "assistant", reply)
         return reply
 
     def process_reply(self, reply: str) -> str:
@@ -135,6 +152,20 @@ class ChatBot:
 
         for cmd in commands:
             cmd = cmd.strip()
+
+            m = REMEMBER_PATTERN.match(cmd)
+            if m:
+                target, fact = m.group(1), m.group(2).strip()
+                added = self.memory.add_fact(target, fact)
+                print(f"[MCBot] {'Remembered' if added else 'Already knew'}: {target} -> {fact}")
+                continue
+            m = FORGET_PATTERN.match(cmd)
+            if m:
+                target, key = m.group(1), m.group(2).strip()
+                removed = self.memory.forget_fact(target, key)
+                print(f"[MCBot] {'Forgot' if removed else 'No match to forget'}: {target} / {key}")
+                continue
+
             print(f"[MCBot] Executing: /{cmd}")
             result = self.rcon.send(cmd)
             if result:
