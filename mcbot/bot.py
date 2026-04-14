@@ -13,10 +13,12 @@ from .abilities import build_system_prompt
 from .stats import PlayerStats
 from .qq_bridge import QQBridge
 from .memory import Memory
+from .registry import Registry
 
 CMD_PATTERN = re.compile(r"\[CMD:(.*?)\]")
 REMEMBER_PATTERN = re.compile(r"^remember\s+(\S+)\s+(.+)$", re.IGNORECASE)
 FORGET_PATTERN = re.compile(r"^forget\s+(\S+)\s+(.+)$", re.IGNORECASE)
+FIND_PATTERN = re.compile(r"^find(?:\s+(item|block))?\s+(.+)$", re.IGNORECASE)
 
 # Rare advancements worth forwarding to QQ
 RARE_ADVANCEMENTS = {
@@ -117,6 +119,14 @@ class ChatBot:
         self.max_history = config.bot.max_history
         print(f"[MCBot] Memory: {memory_path}")
 
+        registry_path = Path(__file__).parent.parent / "data" / "registry.json"
+        try:
+            self.registry = Registry(registry_path)
+            print(f"[MCBot] Registry: v{self.registry.version} ({len(self.registry.items)} items, {len(self.registry.blocks)} blocks)")
+        except Exception as e:
+            print(f"[MCBot] Registry disabled: {e}")
+            self.registry = None
+
     def _build_prompt_with_facts(self, base_prompt: str, player: str) -> str:
         facts = self.memory.get_facts(player)
         if not facts:
@@ -191,6 +201,15 @@ class ChatBot:
                     removed = self.memory.forget_fact(target, key)
                     print(f"[MCBot] {'Forgot' if removed else 'No match to forget'}: {target} / {key}")
                     results.append(f"{cmd} -> {'ok' if removed else 'no match'}")
+                    continue
+                m = FIND_PATTERN.match(cmd)
+                if m and self.registry is not None:
+                    kind = (m.group(1) or "any").lower()
+                    query = m.group(2).strip()
+                    matches = self.registry.find(query, kind=kind, limit=12)
+                    matches_str = ", ".join(matches) if matches else "(no matches)"
+                    print(f"[MCBot] Find '{query}' ({kind}): {matches_str}")
+                    results.append(f"find {kind} '{query}' -> {matches_str}")
                     continue
 
                 print(f"[MCBot] Executing: /{cmd}")

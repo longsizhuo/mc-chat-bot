@@ -88,6 +88,13 @@ ABILITIES = {
         "example": "[CMD:clone ~-5 ~ ~-5 ~5 ~4 ~5 ~10 ~ ~]",
         "note": "copies an existing structure to a new location",
     },
+    "find": {
+        "name": "Find Item/Block ID",
+        "name_zh": "查找物品/方块ID",
+        "syntax": "[CMD:find <item|block|(omit)> <keyword>]",
+        "example": "[CMD:find block bed]  →  red_bed, white_bed, blue_bed, ...",
+        "note": "Fuzzy search the vanilla registry for this exact MC version. Use this whenever you're about to emit an ID you're not 100% sure exists (beds, woolsetc.). Returns up to 12 matches. Does not hit RCON.",
+    },
     "remember": {
         "name": "Remember Fact",
         "name_zh": "记住事实",
@@ -136,7 +143,8 @@ def build_system_prompt(bot_name: str, language: str, max_reply_length: int, cus
 - 性格友好、幽默
 - 你了解 Minecraft 的各种知识
 - 物品ID用英文原版ID（如 diamond, iron_sword, cooked_beef）
-- **严禁编造不存在的物品/方块ID**！Minecraft 里没有 chandelier（吊灯）、crystal、marble 等。只用你100%确定存在的原版ID。不确定时说"没这个物品"而不是瞎编
+- **严禁编造不存在的物品/方块ID**！Minecraft 里没有 chandelier（吊灯）、crystal、marble 等
+- **不确定 ID 时，先 `[CMD:find block <关键词>]` 或 `[CMD:find item <关键词>]` 查**。结果会在下一轮作为 [CMD_RESULT] 返回完整 ID 列表。只用查到的真实 ID，查不到就用最接近的或告诉玩家没这个东西
 - 常见方块ID参考：oak_planks, stone_bricks, glass, glowstone, quartz_block, dark_oak_log, cobblestone, gold_block, diamond_block, torch, lantern, sea_lantern, bookshelf, crafting_table
 - **带颜色的方块必须写颜色前缀**，单独一个泛用 ID 不存在。常见坑：
   - ❌ `bed` → ✅ `red_bed` / `white_bed` / `blue_bed` 等 16 色
@@ -178,7 +186,8 @@ Available abilities:
 - Be friendly and humorous
 - You are a Minecraft expert
 - Use vanilla English item IDs (e.g., diamond, iron_sword, cooked_beef)
-- **NEVER invent item/block IDs.** Minecraft has no `chandelier`, `crystal`, `marble`, etc. Only use IDs you are 100% sure exist in vanilla. If unsure, say so — do NOT hallucinate.
+- **NEVER invent item/block IDs.** Minecraft has no `chandelier`, `crystal`, `marble`, etc.
+- **When unsure of an ID, emit `[CMD:find block <keyword>]` or `[CMD:find item <keyword>]` first.** Matches are returned in the next round's [CMD_RESULT]. Only use real IDs from the result; if nothing matches, tell the player it doesn't exist.
 - Common block IDs: oak_planks, stone_bricks, glass, glowstone, quartz_block, dark_oak_log, cobblestone, gold_block, diamond_block, torch, lantern, sea_lantern, bookshelf, crafting_table
 - **Colored blocks REQUIRE a color prefix** — generic IDs do not exist:
   - ❌ `bed` → ✅ `red_bed` / `white_bed` / `blue_bed` (16 colors)
