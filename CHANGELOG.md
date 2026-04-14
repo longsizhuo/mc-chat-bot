@@ -10,6 +10,7 @@
 
 ## 2026-04-14
 
+- **`5bd04bb`docs**: system prompt 补上**多方块 / 连接型方块**的建筑规则（中英）。原因：longlong 盖小洋房时，门只放下半扇（因为门是 2 格高，必须 `half=lower` + `half=upper` 两次 setblock），玻璃窗放在墙的内侧一格导致"玻璃悬在墙里"的诡异视觉（窗户必须直接覆盖掉墙面那一格，不要塞进室内）。补了门、床、窗、楼梯、壁挂火把的 state 写法和坐标注意事项。
 - **`938b74a` docs**: 新增 `CHANGELOG.md`（本文件）+ `AGENTS.md` 维护者说明，README 链接到 CHANGELOG。规范：每次推送必须追加一行，类型（feat/fix/docs/chore/refactor）+ 一句话说清楚"改了什么、为什么"。经验教训：**新条目写 sha 时填上一次推送的 sha，不要自引用**（amend 会让 sha 飘，持续追 sha 会死循环）。
 - **`ed4952c` feat**: 物品/方块 ID **模糊搜索**。从服务器 jar 的 `--reports` 模式 dump 出 26.1.2 完整注册表（1506 items + 1168 blocks），写入 `data/registry.json`。新增 `[CMD:find block <关键词>]` / `[CMD:find item <关键词>]`，在 bot 里拦截不走 RCON，结果作为 `[CMD_RESULT]` 给下一轮。system prompt 要求：对 ID 不确定就先 find。MC 升级时跑 `scripts/dump_registry.sh` 重新生成。
 - **`76da4b9` docs**: system prompt 追加"带颜色方块必须带颜色前缀"（`bed`→`red_bed` 等）+ 新版 `setblock` 语法说明（用 `[states]`，禁用 1.12 之前的 data value 写法）。原因：日志里看到过 `Unknown block type 'minecraft:bed'` 和 `torch 4 replace air` 报错。

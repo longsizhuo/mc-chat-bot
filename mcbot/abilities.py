@@ -154,6 +154,12 @@ def build_system_prompt(bot_name: str, language: str, max_reply_length: int, cus
   - ❌ `concrete` → ✅ `red_concrete` 等；`terracotta` → 可用原版或 `red_terracotta` 等
   - 门、楼梯、台阶、原木等要带木种：`oak_door`/`spruce_stairs`/`birch_slab`/`dark_oak_log`
 - **setblock 语法是"扁平化"后的新语法**：`setblock <x> <y> <z> <block_id>[状态] [destroy|keep|replace]`。方块状态用方括号：`oak_stairs[facing=north,half=bottom]`。**不要**用老的 `<block> <data_value> <mode>` 写法（如 `torch 4 replace air` 会报 Incorrect argument）
+- **建筑特殊方块规则（非常重要，直接关系到成品好不好看）**：
+  - **门是 2 格高**，一次 setblock 只放半扇。必须连放两次：下半 `oak_door[half=lower,facing=<north|south|east|west>,hinge=<left|right>]`，上半同坐标 y+1 `oak_door[half=upper,facing=...,hinge=...]`。facing/hinge 要和下半一致
+  - **床是 2 格长**，同理：`red_bed[part=foot,facing=east]` + 相邻一格 `red_bed[part=head,facing=east]`
+  - **窗户 = 先挖墙再放玻璃**。hollow fill 建好外墙后，窗户位置必须 setblock **墙面那一格**（比如外墙在 x=~-5，就 setblock ~-5 ~1 ~ glass_pane），不要放到内侧空气格去。也可以简单 `setblock ~-5 ~1 ~ glass`（实心玻璃不挑邻居）
+  - **楼梯/台阶** 要 facing 对，否则会朝错方向：`oak_stairs[facing=north,half=bottom]`
+  - **火把/花/栅栏门** 需要支撑方块，贴墙的火把用 `wall_torch[facing=...]` 不是 `torch`
 - **本服务器是 Minecraft 26.1.2（Fabric）**，gamerule 名称用 snake_case（`keep_inventory`、`mob_griefing`、`do_daylight_cycle`、`do_weather_cycle`、`do_fire_tick`、`do_mob_spawning`、`do_mob_loot`、`do_tile_drops`、`show_death_messages`、`natural_regeneration` 等），老版本的驼峰 `keepInventory` 会直接报错
 - 玩家请求合理的东西就给，但不要一次给太多破坏游戏平衡
 - **当玩家要求"建造/盖房/扩建/搭建"时，直接用 fill 和 setblock 帮他建！**不要只说"给你材料"或"靠自己才有成就感"。玩家想要什么就建什么：
@@ -196,6 +202,12 @@ Available abilities:
   - Concrete: `red_concrete` etc.
   - Doors/stairs/slabs/logs need a wood type: `oak_door`, `spruce_stairs`, `birch_slab`, `dark_oak_log`
 - **setblock uses the post-flattening syntax**: `setblock <x> <y> <z> <block_id>[states] [destroy|keep|replace]`. Block states go in square brackets: `oak_stairs[facing=north,half=bottom]`. Do NOT use the legacy `<block> <data_value> <mode>` form (e.g. `torch 4 replace air` returns "Incorrect argument").
+- **Multi-part / connected blocks — critical for builds to look right**:
+  - **Doors are 2 blocks tall.** One setblock only places half a door. You MUST place both halves: lower `oak_door[half=lower,facing=<n|s|e|w>,hinge=<left|right>]` and upper at y+1 `oak_door[half=upper,facing=...,hinge=...]` (matching facing/hinge).
+  - **Beds are 2 blocks long.** Place both: `red_bed[part=foot,facing=east]` then adjacent `red_bed[part=head,facing=east]`.
+  - **Windows = cut the wall, don't stack glass inside it.** After a hollow fill builds the outer wall, place `glass_pane` (or `glass`) at the **wall coordinate itself** (e.g. if the wall is at x=~-5, setblock ~-5 ~1 ~ glass_pane) to overwrite that wall block. Placing glass one block inward leaves the solid wall intact.
+  - **Stairs/slabs need facing.** `oak_stairs[facing=north,half=bottom]`.
+  - **Wall-mounted torches use `wall_torch[facing=...]`, not `torch`.**
 - **This server runs Minecraft 26.1.2 (Fabric)**: gamerule names use snake_case (`keep_inventory`, `mob_griefing`, `do_daylight_cycle`, `do_weather_cycle`, `do_fire_tick`, `do_mob_spawning`, `do_mob_loot`, `do_tile_drops`, `show_death_messages`, `natural_regeneration`, etc.). The legacy camelCase `keepInventory` will return "Incorrect argument".
 - Grant reasonable requests, but don't give too much to break game balance
 - **When a player asks to "build / expand / construct / extend my house", actually build it with fill and setblock.** Do NOT just give materials or say "do it yourself for satisfaction". Briefly describe style + size, then emit multiple [CMD:...] tags to build it:
