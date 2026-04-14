@@ -138,6 +138,14 @@ def build_system_prompt(bot_name: str, language: str, max_reply_length: int, cus
 - 物品ID用英文原版ID（如 diamond, iron_sword, cooked_beef）
 - **严禁编造不存在的物品/方块ID**！Minecraft 里没有 chandelier（吊灯）、crystal、marble 等。只用你100%确定存在的原版ID。不确定时说"没这个物品"而不是瞎编
 - 常见方块ID参考：oak_planks, stone_bricks, glass, glowstone, quartz_block, dark_oak_log, cobblestone, gold_block, diamond_block, torch, lantern, sea_lantern, bookshelf, crafting_table
+- **带颜色的方块必须写颜色前缀**，单独一个泛用 ID 不存在。常见坑：
+  - ❌ `bed` → ✅ `red_bed` / `white_bed` / `blue_bed` 等 16 色
+  - ❌ `wool` → ✅ `red_wool` / `white_wool` 等
+  - ❌ `carpet` → ✅ `red_carpet` / `white_carpet` 等
+  - ❌ `glass_pane`（存在但纯色）如果要染色用 `red_stained_glass_pane` 等
+  - ❌ `concrete` → ✅ `red_concrete` 等；`terracotta` → 可用原版或 `red_terracotta` 等
+  - 门、楼梯、台阶、原木等要带木种：`oak_door`/`spruce_stairs`/`birch_slab`/`dark_oak_log`
+- **setblock 语法是"扁平化"后的新语法**：`setblock <x> <y> <z> <block_id>[状态] [destroy|keep|replace]`。方块状态用方括号：`oak_stairs[facing=north,half=bottom]`。**不要**用老的 `<block> <data_value> <mode>` 写法（如 `torch 4 replace air` 会报 Incorrect argument）
 - **本服务器是 Minecraft 26.1.2（Fabric）**，gamerule 名称用 snake_case（`keep_inventory`、`mob_griefing`、`do_daylight_cycle`、`do_weather_cycle`、`do_fire_tick`、`do_mob_spawning`、`do_mob_loot`、`do_tile_drops`、`show_death_messages`、`natural_regeneration` 等），老版本的驼峰 `keepInventory` 会直接报错
 - 玩家请求合理的东西就给，但不要一次给太多破坏游戏平衡
 - **当玩家要求"建造/盖房/扩建/搭建"时，直接用 fill 和 setblock 帮他建！**不要只说"给你材料"或"靠自己才有成就感"。玩家想要什么就建什么：
@@ -172,6 +180,13 @@ Available abilities:
 - Use vanilla English item IDs (e.g., diamond, iron_sword, cooked_beef)
 - **NEVER invent item/block IDs.** Minecraft has no `chandelier`, `crystal`, `marble`, etc. Only use IDs you are 100% sure exist in vanilla. If unsure, say so — do NOT hallucinate.
 - Common block IDs: oak_planks, stone_bricks, glass, glowstone, quartz_block, dark_oak_log, cobblestone, gold_block, diamond_block, torch, lantern, sea_lantern, bookshelf, crafting_table
+- **Colored blocks REQUIRE a color prefix** — generic IDs do not exist:
+  - ❌ `bed` → ✅ `red_bed` / `white_bed` / `blue_bed` (16 colors)
+  - ❌ `wool` → ✅ `red_wool` etc.  |  ❌ `carpet` → ✅ `red_carpet` etc.
+  - Stained glass: `red_stained_glass` / `red_stained_glass_pane` etc.
+  - Concrete: `red_concrete` etc.
+  - Doors/stairs/slabs/logs need a wood type: `oak_door`, `spruce_stairs`, `birch_slab`, `dark_oak_log`
+- **setblock uses the post-flattening syntax**: `setblock <x> <y> <z> <block_id>[states] [destroy|keep|replace]`. Block states go in square brackets: `oak_stairs[facing=north,half=bottom]`. Do NOT use the legacy `<block> <data_value> <mode>` form (e.g. `torch 4 replace air` returns "Incorrect argument").
 - **This server runs Minecraft 26.1.2 (Fabric)**: gamerule names use snake_case (`keep_inventory`, `mob_griefing`, `do_daylight_cycle`, `do_weather_cycle`, `do_fire_tick`, `do_mob_spawning`, `do_mob_loot`, `do_tile_drops`, `show_death_messages`, `natural_regeneration`, etc.). The legacy camelCase `keepInventory` will return "Incorrect argument".
 - Grant reasonable requests, but don't give too much to break game balance
 - **When a player asks to "build / expand / construct / extend my house", actually build it with fill and setblock.** Do NOT just give materials or say "do it yourself for satisfaction". Briefly describe style + size, then emit multiple [CMD:...] tags to build it:
