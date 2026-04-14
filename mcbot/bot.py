@@ -143,8 +143,6 @@ class ChatBot:
         self.memory.append_history(player, "assistant", reply)
         return reply
 
-    MAX_TOOL_ROUNDS = 3
-
     def converse(self, player: str, message: str, from_qq: bool = False) -> str:
         """Full tool-use loop: AI reply → execute [CMD:...] → feed results back → repeat.
 
@@ -159,7 +157,8 @@ class ChatBot:
 
         visible_parts: list[str] = []
 
-        for round_idx in range(self.MAX_TOOL_ROUNDS):
+        max_rounds = self.config.bot.max_tool_rounds
+        for round_idx in range(max_rounds):
             history = self.memory.get_history(player)
             reply = self.ai.chat(history, prompt)
             if reply is None:
@@ -202,7 +201,7 @@ class ChatBot:
 
             # Feed results back for next round. If this was the last round,
             # still surface the last visible results inline.
-            if round_idx == self.MAX_TOOL_ROUNDS - 1:
+            if round_idx == max_rounds - 1:
                 # No more rounds to act on results — append condensed info to text
                 brief = " | ".join(r for r in results if r)
                 if brief:

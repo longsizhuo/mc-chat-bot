@@ -66,6 +66,7 @@ class BotConfig:
     system_prompt: str = ""
     memory_dir: str = "memory"
     max_facts: int = 50
+    max_tool_rounds: int = 10
 
 
 @dataclass
@@ -147,6 +148,7 @@ def load_config(path: str) -> Config:
         system_prompt=b.get("system_prompt", ""),
         memory_dir=b.get("memory_dir", "memory"),
         max_facts=b.get("max_facts", 50),
+        max_tool_rounds=b.get("max_tool_rounds", 10),
     )
 
     # Backup
