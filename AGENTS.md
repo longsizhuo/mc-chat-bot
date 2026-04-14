@@ -8,7 +8,13 @@ Before `git push`, append one line to `CHANGELOG.md` under today's date heading 
 - **`<short-sha>` <type>**: one-sentence what + why.
 ```
 
-The `<short-sha>` is the sha of the commit that **introduced the change** — write it in, commit the CHANGELOG entry in a follow-up commit, then push both. Do NOT try to self-reference the same commit's own sha (amending to fix it creates a chase; each amend changes the sha).
+The `<short-sha>` is the sha of the commit that **introduced the change**. Workflow:
+
+1. Commit the code change → get its sha `X`.
+2. In a **separate follow-up commit**, add the CHANGELOG entry referencing `X`.
+3. `git push` both together.
+
+Never try to reference a commit's own sha inside itself — `--amend` rewrites the sha, and every fix attempt creates a new one. A two-commit push costs nothing and is always correct.
 
 Type: `feat` (new capability), `fix` (bug), `docs` (README/prompt/docs),
 `chore` (tooling/config), `refactor` (no behavior change).
