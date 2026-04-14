@@ -67,6 +67,7 @@ class BotConfig:
     memory_dir: str = "memory"
     max_facts: int = 50
     max_tool_rounds: int = 10
+    startup_commands: list = field(default_factory=lambda: ["gamerule keep_inventory true"])
 
 
 @dataclass
@@ -149,6 +150,7 @@ def load_config(path: str) -> Config:
         memory_dir=b.get("memory_dir", "memory"),
         max_facts=b.get("max_facts", 50),
         max_tool_rounds=b.get("max_tool_rounds", 10),
+        startup_commands=b.get("startup_commands", ["gamerule keep_inventory true"]),
     )
 
     # Backup

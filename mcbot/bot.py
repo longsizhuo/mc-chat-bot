@@ -127,6 +127,28 @@ class ChatBot:
             print(f"[MCBot] Registry disabled: {e}")
             self.registry = None
 
+        # 启动时强制断言的 gamerule / 命令（让 keep_inventory 等不会因误操作被关掉）
+        startup_cmds = list(getattr(config.bot, "startup_commands", []) or [])
+        if startup_cmds:
+            threading.Thread(target=self._run_startup_commands,
+                             args=(startup_cmds,), daemon=True).start()
+
+    def _run_startup_commands(self, commands: list):
+        """启动后带重试地执行一次性命令（MC 服务器可能还在加载世界，需要等）。"""
+        # 等 MC 世界加载：最多重试 30 次 × 5 秒 = 2.5 分钟
+        for attempt in range(30):
+            probe = self.rcon.send("list")
+            if probe and "players online" in probe:
+                break
+            time.sleep(5)
+        else:
+            print("[MCBot] startup: RCON never came up, skipping startup_commands")
+            return
+        for cmd in commands:
+            out = self.rcon.send(cmd) or ""
+            out = out.replace("\x1b[0m", "").strip()
+            print(f"[MCBot] startup: /{cmd} -> {out}")
+
     def _build_prompt_with_facts(self, base_prompt: str, player: str) -> str:
         facts = self.memory.get_facts(player)
         if not facts:
