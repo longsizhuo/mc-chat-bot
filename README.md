@@ -275,6 +275,10 @@ python run.py --backup-only          # 只跑备份，不启动聊天
 
 本项目包含符合 [Agent Skills](https://agentskills.io) 标准的技能定义（`deploy-mcbot/SKILL.md`）。支持 Agent Skills 的 AI 编程工具（Claude Code、Cursor、Copilot 等）可以自动识别并帮你部署配置 MCBot。
 
+## 更新日志
+
+见 [CHANGELOG.md](CHANGELOG.md) — 按 commit 为节点记录每次改动（能力新增、prompt 调整、配置变化等）。每次推送都会追加一行，维护者必看。
+
 ## 相关项目
 
 - [mc-website](https://github.com/longsizhuo/mc-website) — 本服务器（mc.involutionhell.com）的官方网站，展示服务器信息、加入指南和在线状态。
@@ -288,6 +292,10 @@ MIT
 # English
 
 MCBot is an AI-powered chat bot for Minecraft servers. Players talk to the bot in-game, and it responds using LLMs (DeepSeek, OpenAI, Claude, Ollama, etc.). The bot can execute server commands like giving items, teleporting players, and changing the weather via RCON.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) — one line per push, grouped by date. Every maintainer-facing change (new abilities, prompt tweaks, config additions) is logged there.
 
 ## Related Projects
 
