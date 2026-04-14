@@ -1,6 +1,13 @@
 """Bot ability definitions and system prompt builder."""
 
 ABILITIES = {
+    "list": {
+        "name": "List Players",
+        "name_zh": "查看在线玩家",
+        "syntax": "[CMD:list]",
+        "example": "[CMD:list]",
+        "note": "shows all online players",
+    },
     "give": {
         "name": "Give Items",
         "name_zh": "给物品",

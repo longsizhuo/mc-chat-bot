@@ -83,12 +83,21 @@ class EventsConfig:
 
 
 @dataclass
+class QQConfig:
+    enabled: bool = False
+    api_url: str = "http://localhost:3000"
+    group_id: int = 0
+    ws_port: int = 6101
+
+
+@dataclass
 class Config:
     ai: AIConfig = field(default_factory=AIConfig)
     rcon: RCONConfig = field(default_factory=RCONConfig)
     bot: BotConfig = field(default_factory=BotConfig)
     events: EventsConfig = field(default_factory=EventsConfig)
     backup: BackupConfig = field(default_factory=BackupConfig)
+    qq: QQConfig = field(default_factory=QQConfig)
     server_dir: str = "."
     log_file: str = "logs/latest.log"
 
@@ -152,6 +161,15 @@ def load_config(path: str) -> Config:
         player_death=ev.get("player_death", True),
         player_afk=ev.get("player_afk", True),
         afk_timeout=ev.get("afk_timeout", 300),
+    )
+
+    # QQ Bridge
+    qq = raw.get("qq", {})
+    config.qq = QQConfig(
+        enabled=qq.get("enabled", False),
+        api_url=qq.get("api_url", "http://localhost:3000"),
+        group_id=qq.get("group_id", 0),
+        ws_port=qq.get("ws_port", 6101),
     )
 
     # Server

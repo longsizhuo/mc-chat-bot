@@ -10,8 +10,35 @@ from .events import EventHandler
 from .providers import AIProvider
 from .rcon import RCON
 from .abilities import build_system_prompt
+from .stats import PlayerStats
+from .qq_bridge import QQBridge
 
 CMD_PATTERN = re.compile(r"\[CMD:(.*?)\]")
+
+# Rare advancements worth forwarding to QQ
+RARE_ADVANCEMENTS = {
+    "The End?", "The End.", "Free the End",
+    "You Need a Mint", "Is It a Plane?", "Withering Heights",
+    "Beaconator", "A Balanced Diet", "Serious Dedication",
+    "How Did We Get Here?", "Adventuring Time", "Two by Two",
+    "Cover Me in Debris", "Uneasy Alliance",
+    "Return to Sender", "A Terrible Fortress",
+    "Spooky Scary Skeleton", "Subspace Bubble",
+    "Hidden in the Depths", "Country Lode, Take Me Home",
+    "Voluntary Exile", "Hero of the Village",
+    "Star Trader", "Smithing with Style",
+    "The Parrots and the Bats", "Monsters Hunted",
+    # Chinese names
+    "结束了？", "结束了。", "解放末地",
+    "信标工程师", "均衡饮食", "隆重献礼",
+    "这是怎么回事？", "探索的时间到了",
+    "深层残骸", "不安的同盟", "以彼之道",
+    "恐怖堡垒", "亚空间泡泡",
+    "自愿流放", "村庄英雄",
+}
+
+# Death streak thresholds that are worth forwarding to QQ
+QQ_DEATH_STREAK_THRESHOLD = 3
 
 CHAT_PATTERN = re.compile(
     r"\[.*?\] \[Server thread/INFO\]: (?:\[Not Secure\] )?<(\w+)> (.+)"
@@ -54,16 +81,32 @@ class ChatBot:
             rcon=self.rcon,
             afk_timeout=afk_timeout,
         )
+        self.stats = PlayerStats(config.server_dir)
+        self.qq: QQBridge | None = None
+        if config.qq.enabled and config.qq.group_id:
+            self.qq = QQBridge(
+                api_url=config.qq.api_url,
+                group_id=config.qq.group_id,
+                ws_port=config.qq.ws_port,
+                bot_name=config.bot.name,
+                on_qq_message=self._on_qq_message,
+            )
         self.system_prompt = build_system_prompt(
             bot_name=config.bot.name,
             language=config.bot.language,
             max_reply_length=config.bot.max_reply_length,
             custom_prompt=config.bot.system_prompt,
         )
+        self.qq_system_prompt = build_system_prompt(
+            bot_name=config.bot.name,
+            language=config.bot.language,
+            max_reply_length=500,
+            custom_prompt="你现在在QQ群里和玩家聊天，不受Minecraft聊天框字数限制，可以写更详细的回复。",
+        )
         self.chat_histories: dict[str, list[dict]] = {}
         self.max_history = config.bot.max_history
 
-    def get_reply(self, player: str, message: str) -> str:
+    def get_reply(self, player: str, message: str, from_qq: bool = False) -> str:
         """Get AI reply for a player message."""
         if player not in self.chat_histories:
             self.chat_histories[player] = []
@@ -75,7 +118,8 @@ class ChatBot:
             self.chat_histories[player] = history[-self.max_history :]
             history = self.chat_histories[player]
 
-        reply = self.ai.chat(history, self.system_prompt)
+        prompt = self.qq_system_prompt if from_qq else self.system_prompt
+        reply = self.ai.chat(history, prompt)
         if reply is None:
             return "..."
 
@@ -83,22 +127,56 @@ class ChatBot:
         return reply
 
     def process_reply(self, reply: str) -> str:
-        """Extract and execute [CMD:...] tags, return text-only reply."""
+        """Extract and execute [CMD:...] tags, return text-only reply with command results."""
+        import re as _re
         commands = CMD_PATTERN.findall(reply)
         text = CMD_PATTERN.sub("", reply).strip()
+        results = []
 
         for cmd in commands:
             cmd = cmd.strip()
             print(f"[MCBot] Executing: /{cmd}")
             result = self.rcon.send(cmd)
             if result:
+                # Strip ANSI color codes from RCON output
+                result = _re.sub(r"\x1b\[[0-9;]*m|\[0m", "", result).strip()
                 print(f"[MCBot] Result: {result}")
+                results.append(result)
+
+        if results:
+            text = text + " " + " | ".join(results) if text else " | ".join(results)
 
         return text
 
-    def say(self, message: str):
-        """Send a message to the game chat."""
+    def say(self, message: str, forward_qq: bool = True):
+        """Send a message to the game chat and optionally forward to QQ."""
         self.rcon.say(self.bot_name, message)
+        if forward_qq and self.qq:
+            self.qq.forward_mc_event("bot", f"[{self.bot_name}] {message}")
+
+    def _on_qq_message(self, nickname: str, message: str):
+        """Handle message from QQ group → AI reply + forward to both MC and QQ."""
+        # Strip CQ codes (at mentions etc.)
+        import re
+        clean_msg = re.sub(r"\[CQ:[^\]]+\]", "", message).strip()
+        if not clean_msg:
+            return
+
+        # Show QQ message in MC game chat
+        self.rcon.say(f"QQ·{nickname}", clean_msg)
+
+        # Get AI reply with longer limit for QQ
+        qq_player = f"QQ:{nickname}"
+        reply = self.get_reply(qq_player, clean_msg, from_qq=True)
+        print(f"[MCBot] QQ {nickname} -> {reply}")
+
+        text = self.process_reply(reply)
+        if text:
+            # Send reply to MC game chat
+            self.rcon.say(self.bot_name, text)
+            # Send reply back to QQ group
+            if self.qq:
+                self.qq.send_to_qq(f"[{self.bot_name}] {text}")
 
     def _status_poller(self):
         """Background thread: poll player states via RCON + check AFK/playtime."""
@@ -146,6 +224,11 @@ class ChatBot:
             while not log_path.exists():
                 time.sleep(5)
 
+        # Start QQ bridge if enabled
+        if self.qq:
+            self.qq.start_listener()
+            print(f"[MCBot] QQ bridge enabled (group: {self.config.qq.group_id})")
+
         # Start background status poller
         poller = threading.Thread(target=self._status_poller, daemon=True)
         poller.start()
@@ -170,6 +253,10 @@ class ChatBot:
                     player, message = match.group(1), match.group(2)
                     print(f"[MCBot] {player}: {message}")
 
+                    # Forward to QQ
+                    if self.qq:
+                        self.qq.forward_mc_event("chat", f"<{player}> {message}")
+
                     # Check AFK return
                     return_msg = self.events.on_player_chat(player)
                     if return_msg:
@@ -188,8 +275,9 @@ class ChatBot:
                 if match:
                     player = match.group(1)
                     print(f"[MCBot] {player} joined")
+                    self.stats.on_join(player)
                     msg = self.events.on_player_join(player)
-                    self.say(msg)
+                    self.say(msg, forward_qq=False)
                     continue
 
                 # Player leave
@@ -197,6 +285,7 @@ class ChatBot:
                 if match:
                     player = match.group(1)
                     print(f"[MCBot] {player} left")
+                    self.stats.on_leave(player)
                     self.events.on_player_leave(player)
                     continue
 
@@ -204,9 +293,14 @@ class ChatBot:
                 match = DEATH_PATTERN.match(line)
                 if match:
                     player = match.group(1)
+                    cause = match.group(2)
                     print(f"[MCBot] {player} died")
+                    self.stats.on_death(player, cause)
                     msg = self.events.on_player_death(player, line)
-                    self.say(msg)
+                    # Only forward to QQ on death streaks (3+)
+                    recent = len(self.events.death_timestamps.get(player, []))
+                    forward_qq = recent >= QQ_DEATH_STREAK_THRESHOLD
+                    self.say(msg, forward_qq=forward_qq)
                     continue
 
                 # Advancement
@@ -214,5 +308,10 @@ class ChatBot:
                 if match:
                     player, advancement = match.group(1), match.group(2)
                     print(f"[MCBot] {player} got advancement: {advancement}")
+                    self.stats.on_advancement(player, advancement)
                     msg = self.events.on_advancement(player, advancement)
-                    self.say(msg)
+                    # Only forward rare advancements to QQ
+                    is_rare = advancement in RARE_ADVANCEMENTS
+                    self.say(msg, forward_qq=is_rare)
+                    if is_rare and self.qq:
+                        self.qq.forward_mc_event("advancement", msg)

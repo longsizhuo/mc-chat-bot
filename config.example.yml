@@ -49,3 +49,13 @@ backup:
   check_interval: 60     # Seconds between game-day checks
   max_backups: 10        # Max backups to keep
   backup_dir: "backups"
+
+# ===== QQ Group Bridge (OneBot 11) =====
+# Requires NapCat, Lagrange, or go-cqhttp running with OneBot 11 HTTP API.
+# Events (chat, join, death, etc.) will be forwarded to the QQ group.
+# QQ group messages will be forwarded to MC game chat.
+qq:
+  enabled: false
+  api_url: "http://localhost:3000"  # OneBot HTTP API address
+  group_id: 0                       # QQ group number
+  listen_port: 5800                 # Port to receive OneBot events (HTTP POST)
