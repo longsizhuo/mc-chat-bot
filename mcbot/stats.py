@@ -15,12 +15,19 @@ class PlayerStats:
         self.data = self._load()
 
     def _load(self) -> dict:
+        default = {"players": {}, "server": {"total_deaths": 0, "total_joins": 0}}
         if self.data_path.exists():
             try:
-                return json.loads(self.data_path.read_text())
+                data = json.loads(self.data_path.read_text())
             except (json.JSONDecodeError, OSError):
-                return {"players": {}, "server": {"total_deaths": 0, "total_joins": 0}}
-        return {"players": {}, "server": {"total_deaths": 0, "total_joins": 0}}
+                return default
+            # 关键：兼容历史/损坏文件 — 补齐缺失的顶层键，避免 KeyError
+            data.setdefault("players", {})
+            data.setdefault("server", {"total_deaths": 0, "total_joins": 0})
+            data["server"].setdefault("total_deaths", 0)
+            data["server"].setdefault("total_joins", 0)
+            return data
+        return default
 
     def _save(self):
         self.data_path.parent.mkdir(parents=True, exist_ok=True)

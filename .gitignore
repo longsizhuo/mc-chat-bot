@@ -6,3 +6,11 @@ config.yml
 backups/
 .last_day
 .venv/
+
+# 运行时状态（玩家数据、死亡记录、留言等）
+data/deaths.json
+data/messages.json
+data/today_prophecy.json
+data/landmarks.json
+data/weekly_shame.json
+data/.roast_state.json
