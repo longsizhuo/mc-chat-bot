@@ -14,6 +14,7 @@ from .stats import PlayerStats
 from .qq_bridge import QQBridge
 from .memory import Memory
 from .registry import Registry
+from .chronicle import WeeklyChronicle
 
 CMD_PATTERN = re.compile(r"\[CMD:(.*?)\]")
 REMEMBER_PATTERN = re.compile(r"^remember\s+(\S+)\s+(.+)$", re.IGNORECASE)
@@ -126,6 +127,14 @@ class ChatBot:
         except Exception as e:
             print(f"[MCBot] Registry disabled: {e}")
             self.registry = None
+
+        # 每周传说推送
+        stats_path = str(Path(config.server_dir) / "player_stats.json")
+        self.chronicle = WeeklyChronicle(
+            stats_path=stats_path,
+            ai_provider=self.ai,
+            send_to_qq=self.qq.send_to_qq if self.qq else None,
+        )
 
         # 启动时强制断言的 gamerule / 命令（让 keep_inventory 等不会因误操作被关掉）
         startup_cmds = list(getattr(config.bot, "startup_commands", []) or [])
@@ -373,6 +382,9 @@ class ChatBot:
         # Start background status poller
         poller = threading.Thread(target=self._status_poller, daemon=True)
         poller.start()
+
+        # 启动每周传说定时器
+        self.chronicle.start()
 
         with open(log_path, "r") as f:
             f.seek(0, 2)  # Skip to end
