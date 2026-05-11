@@ -19,11 +19,16 @@ from .weekly_deaths import WeeklyDeaths
 from .weekly_shame_vote import WeeklyShameVote
 from .random_roast import RandomRoast
 from .daily_prophecy import DailyProphecy
+from .daily_mood import DailyMood
 from .weekly_mystery import WeeklyMystery
 from .landmarks import LandmarksManager
 from .messageboard import MessageBoard
 from .ingame_vote import InGameVote
 from .death_heatmap import DeathHeatmap
+from .time_capsule import TimeCapsule
+from .bot_deeds import collect_today_deeds
+from .catchphrase import compute_catchphrases
+from .chat_logger import ChatLogger
 
 CMD_PATTERN = re.compile(r"\[CMD:(.*?)\]")
 REMEMBER_PATTERN = re.compile(r"^remember\s+(\S+)\s+(.+)$", re.IGNORECASE)
@@ -76,6 +81,10 @@ ADVANCEMENT_PATTERN = re.compile(
 
 # Polling interval for RCON status checks (seconds)
 POLL_INTERVAL = 15
+
+# 在线名单对账周期（秒）：定期用 RCON list 强校准 events.online_players，
+# 防止错过 join/leave 日志后内存状态永久偏离真实
+RECONCILE_INTERVAL = 60
 
 # 空服达到此秒数后，下次首人上线会播报到 QQ 群（默认 1 小时）
 EMPTY_SERVER_THRESHOLD_SECONDS = 3600
@@ -173,9 +182,74 @@ class ChatBot:
             send_to_qq=self.qq.send_to_qq if self.qq else None,
         )
 
+        # 小方今日心情（09:00 生成，存 data/today_mood.json，供 /api/mood 端点读取）
+        mood_state = str(Path(__file__).parent.parent / "data" / "today_mood.json")
+        self.daily_mood = DailyMood(
+            stats_path=stats_path_for_roast,
+            state_path=mood_state,
+            ai_provider=self.ai,
+        )
+
+        # 聊天日志（用于本周词云）
+        chat_log_path = str(Path(__file__).parent.parent / "data" / "chat_log.json")
+        self.chat_logger = ChatLogger(chat_log_path)
+
         # 玩家留言板（网站发留言，玩家上线时游戏内播报）
         # 同时给网站提供 /api/online 端点（当前在线 + 本次会话时长）
+        # 时间胶囊（必须在 MessageBoard 前建，MessageBoard 依赖它）
+        capsules_path = str(Path(__file__).parent.parent / "data" / "capsules.json")
+        self.time_capsule = TimeCapsule(
+            storage_path=capsules_path,
+            send_to_qq=self.qq.send_to_qq if self.qq else None,
+        )
+
         messages_path = str(Path(__file__).parent.parent / "data" / "messages.json")
+
+        # 游客版 system prompt：小方会聊天，但不执行任何 RCON 命令
+        _stats_path_for_chat = Path(config.server_dir) / "player_stats.json"
+
+        def _chat_provider(message: str, history: list) -> str | None:
+            """网页访客调用的 AI 对话接口，无 RCON 权限。"""
+            # 读取当前玩家统计，注入上下文
+            try:
+                import json as _json
+                stats_raw = _json.loads(_stats_path_for_chat.read_text(encoding="utf-8"))
+                players = stats_raw.get("players", {})
+                # 只取有真实游玩记录的玩家（时长 > 5 分钟）
+                active = {
+                    name: p for name, p in players.items()
+                    if p.get("playtime_minutes", 0) > 5
+                }
+                stats_lines = []
+                for name, p in sorted(active.items(), key=lambda x: -x[1].get("playtime_minutes", 0))[:8]:
+                    mins = p.get("playtime_minutes", 0)
+                    h, m = int(mins // 60), int(mins % 60)
+                    time_str = f"{h}小时{m}分" if h else f"{m}分钟"
+                    adv_count = len(p.get("advancements", []))
+                    deaths = p.get("deaths", 0)
+                    stats_lines.append(f"- {name}：游玩 {time_str}，{adv_count} 个成就，重生 {deaths} 次")
+                stats_context = "\n".join(stats_lines) if stats_lines else "（暂无数据）"
+            except Exception:
+                stats_context = "（数据读取中）"
+
+            guest_system_prompt = (
+                f"你是「小方」，{config.bot.name} MC 服务器（mc.involutionhell.com）的 AI 助手，"
+                f"性格活泼、幽默、略带碎嘴，喜欢用表情包语气说话。\n\n"
+                f"你现在在服务器官网和一位还没加入游戏的访客聊天。"
+                f"你了解服务器里发生的事，可以介绍服务器特色、分享玩家故事、撩拨访客的好奇心。\n"
+                f"服务器特色：不需要正版账号、有 AI 助手（就是你）、QQ 群 1101232433 可以直接聊天、"
+                f"服务器地址 mc.involutionhell.com。\n\n"
+                f"当前探索者数据（真实）：\n{stats_context}\n\n"
+                f"重要约束：\n"
+                f"- 你只能聊天，不能执行任何游戏命令（不能给物品、不能传送、不能改时间天气）\n"
+                f"- 回复控制在 150 字以内，对话感强，不要写大段说明文\n"
+                f"- 不要透露 API Key、服务器密码、RCON 密码等任何敏感信息\n"
+                f"- 如果访客问如何加入，引导他们去 mc.involutionhell.com/inside 看加入指南"
+            )
+            msgs = [{"role": m["role"], "content": m["content"]} for m in history
+                    if m.get("role") in ("user", "assistant") and m.get("content")]
+            msgs.append({"role": "user", "content": message})
+            return self.ai.chat(msgs, guest_system_prompt)
 
         def _online_provider():
             """给 /api/online 用：从 events.online_players + stats 里组装数据。"""
@@ -194,12 +268,59 @@ class ChatBot:
             result.sort(key=lambda x: -x["session_seconds"])
             return result
 
+        # 天气 provider 缓存，避免每次请求都打 RCON（MC 天气不需要实时到秒）
+        _weather_cache = {"ts": 0, "data": {}}
+
+        def _weather_provider():
+            """/api/weather: 返回 MC 当前时段 + 下雨/雷暴状态。30s 缓存。"""
+            now_ts = time.time()
+            if now_ts - _weather_cache["ts"] < 30:
+                return _weather_cache["data"]
+            try:
+                # MC 26.1.2 移除了 time query daytime，用 gametime % 24000
+                gt_resp = self.rcon.send("time query gametime") or ""
+                m = re.search(r"(\d+)", gt_resp.replace("\x1b[0m", ""))
+                gametime = int(m.group(1)) if m else None
+                daytime = gametime % 24000 if gametime is not None else None
+
+                time_of_day = None
+                if daytime is not None:
+                    if 0 <= daytime < 6000:
+                        time_of_day = "morning"  # 日出 - 正午
+                    elif 6000 <= daytime < 12000:
+                        time_of_day = "noon"  # 正午 - 日落
+                    elif 12000 <= daytime < 13000:
+                        time_of_day = "sunset"
+                    elif 13000 <= daytime < 23000:
+                        time_of_day = "night"
+                    else:
+                        time_of_day = "dawn"
+
+                data = {
+                    "daytime": daytime,
+                    "time_of_day": time_of_day,
+                }
+                _weather_cache["ts"] = now_ts
+                _weather_cache["data"] = data
+                return data
+            except Exception as e:
+                print(f"[Weather] 查询失败: {e}")
+                return {}
+
+        _logs_dir_for_catchphrase = logs_dir
         self.messageboard = MessageBoard(
             storage_path=messages_path,
             rcon=self.rcon,
             bot_name=self.bot_name,
             online_provider=_online_provider,
             deaths_provider=lambda: self.death_heatmap.list_all(),
+            mood_provider=self.daily_mood.load,
+            catchphrase_provider=lambda: compute_catchphrases(_logs_dir_for_catchphrase),
+            wordcloud_provider=lambda: self.chat_logger.weekly_word_counts(),
+            weather_provider=_weather_provider,
+            time_capsule=self.time_capsule,
+            deeds_provider=lambda: collect_today_deeds(Path(config.server_dir) / "logs" / "latest.log"),
+            chat_provider=_chat_provider,
         )
 
         # 死亡热点地图（死亡时异步查 LastDeathLocation，存坐标给前端画热力图）
@@ -207,6 +328,7 @@ class ChatBot:
         self.death_heatmap = DeathHeatmap(
             storage_path=deaths_path,
             rcon=self.rcon,
+            ai_provider=self.ai,
         )
 
         # 游戏内民主投票（游戏内命令：投票 xxx / +1 / -1，30 秒决断）
@@ -433,6 +555,72 @@ class ChatBot:
                 print(f"[MCBot] Playtime: {msg}")
                 self.say(msg)
 
+    def _reconcile_online_loop(self):
+        """后台线程：定期用 RCON list 校准 events.online_players。
+
+        启动同步只跑一次，运行期间完全靠日志事件维护在线集合。一旦错过
+        join/leave（NapCat 抖动、日志解析失败、bot 短暂卡顿）状态会永久
+        偏离真实，导致 LLM 拿到错误的玩家活跃情况胡编人名。这里每
+        RECONCILE_INTERVAL 秒拉一次真值对账。
+
+        差异处理：
+        - 幻影玩家（内存有 / 服务器没）：当作静默离开，清理状态，不广播
+        - 漏记玩家（服务器有 / 内存没）：当作静默上线，补登记，不广播
+        广播会让玩家在事件错过几分钟后被"假上线/假下线"打扰，比偏差更糟。
+        """
+        while True:
+            time.sleep(RECONCILE_INTERVAL)
+
+            try:
+                resp = self.rcon.send("list") or ""
+                m = re.search(r"There are (\d+) of[^:]*:\s*(.*)", resp)
+                if not m:
+                    continue
+
+                true_count = int(m.group(1))
+                names_raw = m.group(2).strip().rstrip("\x1b[0m")
+                true_set = set()
+                for name in names_raw.split(","):
+                    name = re.sub(r"\x1b\[[0-9;]*m", "", name).strip()
+                    if name:
+                        true_set.add(name)
+
+                mem_set = set(self.events.online_players)
+                phantoms = mem_set - true_set
+                missing = true_set - mem_set
+
+                if not phantoms and not missing and self._online_count == true_count:
+                    continue
+
+                # 幻影：静默离开
+                for p in phantoms:
+                    print(f"[MCBot] Reconcile: {p} 在内存但不在 RCON，静默下线")
+                    try:
+                        self.stats.on_leave(p)
+                    except Exception as e:
+                        print(f"[MCBot] Reconcile leave stats failed for {p}: {e}")
+                    self.events.on_player_leave(p)
+
+                # 漏记：静默上线（不调 on_player_join 避免触发欢迎语；逻辑参考启动同步）
+                for p in missing:
+                    print(f"[MCBot] Reconcile: {p} 在 RCON 但不在内存，静默上线")
+                    self.events.online_players.add(p)
+                    self.events.player_activity[p] = time.time()
+                    sp = self.stats._get_player(p)
+                    if "_join_time" not in sp:
+                        sp["_join_time"] = time.time()
+
+                # 用真值修正计数；若刚从有人变空，记录空服起始时间
+                # （走到 0 后才能在隔 1 小时再有人时触发"复活"广播）
+                self._online_count = true_count
+                if true_count == 0 and mem_set:
+                    self._last_empty_time = time.time()
+
+                print(f"[MCBot] Reconcile done: true={true_count} {sorted(true_set)} "
+                      f"phantoms={sorted(phantoms)} missing={sorted(missing)}")
+            except Exception as e:
+                print(f"[MCBot] Reconcile error: {e}")
+
     def run(self):
         """Main bot loop."""
         log_path = Path(self.config.server_dir) / self.config.log_file
@@ -455,15 +643,34 @@ class ChatBot:
             self.qq.start_listener()
             print(f"[MCBot] QQ bridge enabled (group: {self.config.qq.group_id})")
 
-        # 启动时通过 RCON 同步当前在线人数，避免 bot 重启后触发假的"首人上线"播报
+        # 启动时通过 RCON 同步当前在线人数 + 在线玩家名
+        # 目的 1：避免 bot 重启后触发假的"首人上线"播报
+        # 目的 2：bot 重启期间玩家仍在线，要把他们重新注册成"当前 session"，
+        #        否则他们离开时计算不到时长（playtime_minutes 漏算）
         try:
             resp = self.rcon.send("list") or ""
-            m = re.search(r"There are (\d+) of", resp)
+            m = re.search(r"There are (\d+) of[^:]*:\s*(.*)", resp)
             if m:
                 self._online_count = int(m.group(1))
                 if self._online_count > 0:
-                    # 服务器本来就有人 → 不应该立刻播报
                     self._last_empty_time = time.time()
+                    # 解析玩家名列表（逗号分隔）并重新注册
+                    names_raw = m.group(2).strip().rstrip("\x1b[0m")
+                    names = [n.strip() for n in names_raw.split(",") if n.strip()]
+                    for name in names:
+                        # 去除可能的 ANSI 残留
+                        name = re.sub(r"\x1b\[[0-9;]*m", "", name).strip()
+                        if not name:
+                            continue
+                        # 把玩家加回 events.online_players
+                        self.events.online_players.add(name)
+                        self.events.player_activity[name] = time.time()
+                        # stats 也要补一个 join，否则离开时计不到时长
+                        # 注意：不增加 joins 计数（防重复），只设 _join_time
+                        p = self.stats._get_player(name)
+                        if "_join_time" not in p:
+                            p["_join_time"] = time.time()
+                    print(f"[MCBot] Online resumed: {names}")
                 print(f"[MCBot] Online count synced: {self._online_count}")
         except Exception as e:
             print(f"[MCBot] Online count sync failed: {e}")
@@ -471,6 +678,14 @@ class ChatBot:
         # Start background status poller
         poller = threading.Thread(target=self._status_poller, daemon=True)
         poller.start()
+
+        # 启动在线名单对账线程（每 RECONCILE_INTERVAL 秒强校准一次）
+        reconciler = threading.Thread(target=self._reconcile_online_loop, daemon=True)
+        reconciler.start()
+        print(f"[MCBot] Online reconcile every {RECONCILE_INTERVAL}s")
+
+        # 启动时间胶囊调度（每小时检查到期）
+        self.time_capsule.start()
 
         # 启动小方日记定时器（周日 22:00）
         self.weekly_diary.start()
@@ -486,6 +701,9 @@ class ChatBot:
 
         # 启动今日预言定时器（早 8:00 / 晚 23:00）
         self.daily_prophecy.start()
+
+        # 启动今日心情定时器（每天 09:00，生成后存 today_mood.json）
+        self.daily_mood.start()
 
         # 启动本周悬案定时器（周三 19:00）
         self.weekly_mystery.start()
@@ -536,6 +754,9 @@ class ChatBot:
             if match:
                 player, message = match.group(1), match.group(2)
                 print(f"[MCBot] {player}: {message}")
+
+                # 记录聊天日志（用于词云）
+                self.chat_logger.record(player, message)
 
                 # Forward to QQ（即使没 @ 小方也要转发，让 QQ 群看得到游戏内讨论）
                 if self.qq:

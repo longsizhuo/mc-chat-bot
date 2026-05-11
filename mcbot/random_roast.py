@@ -1,10 +1,10 @@
-"""小方找茬 - 每 2-3 天随机挑一个玩家，用吐槽口吻点评他最近的表现。
+"""小方找茬 - 每 2-3 天随机挑一个玩家，用吐槽口吻点评他在服务器的表现。
 
 设计原则：
 - 完全随机，没有固定仪式感（朋友调侃不该变成"每周惯例"）
 - 每小时摇一次骰子，平均 2-3 天触发一次
 - 同一玩家不能连续 2 次被点（防止"针对某人"的不适感）
-- 只挑活跃玩家（最近 7 天有数据），不骚扰挂机号
+- 候选范围：所有有数据可吐槽的历史玩家（不限近 7 天，避免活跃玩家少时定向骚扰单人）
 - 只在白天触发（10:00-21:00 CST），别半夜吓人
 """
 
@@ -45,10 +45,11 @@ ROAST_SYSTEM_PROMPT = """你是小方，一个 Minecraft 服务器的 AI 助手�
 
 ROAST_USER_TEMPLATE = """今天随机点到的玩家是 {player}。
 
-他最近 7 天的数据：
+他在服务器的累计数据：
 {stats_text}
 
-请用小方的身份发一句找茬吐槽（1-2 句话），结合具体数据，别说教。"""
+请用小方的身份发一句找茬吐槽（1-2 句话），结合具体数据，别说教。
+如果他已经很久没上线，可以顺势调侃"还记得他吗"或者"考古一下"这种回忆感。"""
 
 
 class RandomRoast:
@@ -94,7 +95,11 @@ class RandomRoast:
     # ====== 玩家数据抽取 ======
 
     def _pick_active_player(self) -> Optional[tuple[str, dict]]:
-        """从 stats 里挑一个最近 7 天活跃的玩家，避开上次被点的。"""
+        """从 stats 历史玩家里挑一个有数据可吐槽的，避开上次被点的。
+
+        不限近 7 天：服务器活跃玩家少时，限活跃池会让候选退化成单人 →
+        定向骚扰。改用全量历史，AI 顺势可以玩"考古"梗。
+        """
         if not self.stats_path.exists():
             return None
         try:
@@ -102,12 +107,9 @@ class RandomRoast:
         except (json.JSONDecodeError, OSError):
             return None
 
-        cutoff = time.time() - 7 * 86400
         candidates: list[tuple[str, dict]] = []
         for name, p in (data.get("players") or {}).items():
             if not isinstance(p, dict):
-                continue
-            if p.get("last_seen", 0) < cutoff:
                 continue
             # 必须有一点数据（死亡/成就/在线）才有得吐槽
             if (p.get("deaths", 0) + len(p.get("advancements", []))
@@ -118,15 +120,29 @@ class RandomRoast:
         if not candidates:
             return None
 
-        # 避开上次被点的（除非只剩一个人）
-        if self._last_roasted_player and len(candidates) > 1:
+        # 候选 ≤ 1 时直接放弃这次，避免把唯一候选反复点（变成定向骚扰）
+        if len(candidates) <= 1:
+            return None
+
+        # 避开上次被点的
+        if self._last_roasted_player:
             candidates = [c for c in candidates if c[0] != self._last_roasted_player]
+        if not candidates:
+            return None
 
         return random.choice(candidates)
 
     def _build_stats_text(self, player: str, data: dict) -> str:
         """把玩家数据整理成 AI 能消化的简短描述。"""
         lines: list[str] = []
+        # 距上次上线天数：让 AI 判断该走"近期吐槽"还是"考古回忆"路线
+        last_seen = data.get("last_seen", 0)
+        if last_seen > 0:
+            days_ago = int((time.time() - last_seen) // 86400)
+            if days_ago <= 1:
+                lines.append("最近一两天还在线")
+            else:
+                lines.append(f"距上次上线已 {days_ago} 天")
         playtime = round(data.get("playtime_minutes", 0))
         if playtime > 0:
             lines.append(f"在线 {playtime} 分钟")

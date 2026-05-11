@@ -147,15 +147,46 @@ class MessageBoard:
         storage_path: str,
         rcon,
         bot_name: str = "小方",
-        online_provider=None,  # Optional[Callable[[], list[dict]]]，返回 [{name, session_seconds}]
-        deaths_provider=None,  # Optional[Callable[[], list[dict]]]，返回死亡坐标列表
+        online_provider=None,       # Optional[Callable[[], list[dict]]]，返回 [{name, session_seconds}]
+        deaths_provider=None,       # Optional[Callable[[], list[dict]]]，返回死亡坐标列表
+        mood_provider=None,         # Optional[Callable[[], dict]]，返回今日心情 dict
+        catchphrase_provider=None,  # Optional[Callable[[], dict]]，返回 {player: top_word}
+        wordcloud_provider=None,    # Optional[Callable[[], list[dict]]]，返回 [{text, value, player}]
+        weather_provider=None,      # Optional[Callable[[], dict]]，返回 {daytime, time_of_day, ...}
+        time_capsule=None,          # 可选 TimeCapsule 实例，同时提供 list_public/post 两个方法
+        deeds_provider=None,        # Optional[Callable[[], dict]]，返回小方今日工作日志
+        chat_provider=None,         # Optional[Callable[[str, list], str]]，网页访客 AI 对话（游客版，无 RCON）
     ):
         self.store = MessageStore(Path(storage_path))
         self.rcon = rcon
         self.bot_name = bot_name
         self.online_provider = online_provider
         self.deaths_provider = deaths_provider
+        self.mood_provider = mood_provider
+        self.catchphrase_provider = catchphrase_provider
+        self.wordcloud_provider = wordcloud_provider
+        self.weather_provider = weather_provider
+        self.time_capsule = time_capsule
+        self.deeds_provider = deeds_provider
+        self.chat_provider = chat_provider
         self._http_server: Optional[HTTPServer] = None
+
+        # IP 维度 rate limit：每个 IP 每 60 秒最多 1 次 /api/chat 请求
+        self._chat_rate: dict[str, float] = {}  # ip -> 上次请求时间戳
+        self._chat_rate_lock = threading.Lock()
+
+    def _check_chat_rate(self, ip: str) -> bool:
+        """返回 True 表示允许，False 表示被限流（60 秒冷却）。"""
+        now = time.time()
+        with self._chat_rate_lock:
+            last = self._chat_rate.get(ip, 0)
+            if now - last < 60:
+                return False
+            self._chat_rate[ip] = now
+            # 顺手清理超过 10 分钟的旧记录，防止内存泄漏
+            cutoff = now - 600
+            self._chat_rate = {k: v for k, v in self._chat_rate.items() if v > cutoff}
+            return True
 
     # ========== HTTP ==========
 
@@ -163,6 +194,14 @@ class MessageBoard:
         store = self.store
         online_provider = self.online_provider
         deaths_provider = self.deaths_provider
+        mood_provider = self.mood_provider
+        catchphrase_provider = self.catchphrase_provider
+        wordcloud_provider = self.wordcloud_provider
+        weather_provider = self.weather_provider
+        time_capsule = self.time_capsule
+        deeds_provider = self.deeds_provider
+        chat_provider = self.chat_provider
+        check_chat_rate = self._check_chat_rate
 
         class Handler(BaseHTTPRequestHandler):
             # 静音默认 stdout 日志，避免污染 bot 日志
@@ -179,6 +218,50 @@ class MessageBoard:
                 self.wfile.write(body)
 
             def do_GET(self):
+                # /api/deeds - 小方今日工作日志
+                if self.path.startswith("/api/deeds"):
+                    if deeds_provider:
+                        try:
+                            d = deeds_provider() or {}
+                        except Exception:
+                            d = {}
+                    else:
+                        d = {}
+                    return self._json_response(200, {"ok": True, **d})
+
+                # /api/capsules - 时间胶囊列表（封存中的不暴露正文）
+                if self.path.startswith("/api/capsules"):
+                    if time_capsule:
+                        try:
+                            items = time_capsule.list_public()
+                        except Exception:
+                            items = []
+                    else:
+                        items = []
+                    return self._json_response(200, {"ok": True, "capsules": items})
+
+                # /api/weather - 服务器游戏内时段 + 天气
+                if self.path.startswith("/api/weather"):
+                    if weather_provider:
+                        try:
+                            w = weather_provider() or {}
+                        except Exception:
+                            w = {}
+                    else:
+                        w = {}
+                    return self._json_response(200, {"ok": True, **w})
+
+                # /api/mood - 今日小方心情
+                if self.path.startswith("/api/mood"):
+                    if mood_provider:
+                        try:
+                            mood = mood_provider() or {}
+                        except Exception:
+                            mood = {}
+                    else:
+                        mood = {}
+                    return self._json_response(200, {"ok": True, **mood})
+
                 # /api/deaths - 死亡坐标列表（给热力图用）
                 if self.path.startswith("/api/deaths"):
                     if deaths_provider:
@@ -209,6 +292,30 @@ class MessageBoard:
                         "players": players,
                     })
 
+                # /api/stats - 玩家统计数据（含口头禅）
+                if self.path.startswith("/api/stats"):
+                    catchphrases: dict = {}
+                    if catchphrase_provider:
+                        try:
+                            catchphrases = catchphrase_provider() or {}
+                        except Exception:
+                            catchphrases = {}
+                    return self._json_response(200, {
+                        "ok": True,
+                        "catchphrases": catchphrases,
+                    })
+
+                # /api/wordcloud - 本周聊天词云数据
+                if self.path.startswith("/api/wordcloud"):
+                    if wordcloud_provider:
+                        try:
+                            words = wordcloud_provider() or []
+                        except Exception:
+                            words = []
+                    else:
+                        words = []
+                    return self._json_response(200, {"ok": True, "words": words})
+
                 if self.path.startswith("/api/messages"):
                     messages = store.list_all()
                     # 不暴露 read_by 细节给前端
@@ -222,6 +329,29 @@ class MessageBoard:
                 self._json_response(404, {"ok": False, "error": "not found"})
 
             def do_POST(self):
+                if self.path.startswith("/api/capsules"):
+                    if not time_capsule:
+                        return self._json_response(503, {"ok": False, "error": "胶囊未启用"})
+                    length = int(self.headers.get("Content-Length", 0) or 0)
+                    if length > 4096:
+                        return self._json_response(413, {"ok": False, "error": "payload 过大"})
+                    try:
+                        payload = json.loads(self.rfile.read(length).decode("utf-8"))
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        return self._json_response(400, {"ok": False, "error": "JSON 格式错误"})
+                    try:
+                        days = int(payload.get("days", 7))
+                    except (TypeError, ValueError):
+                        return self._json_response(400, {"ok": False, "error": "days 必须是整数"})
+                    ok, result = time_capsule.post(
+                        author=payload.get("author", ""),
+                        text=payload.get("text", ""),
+                        days=days,
+                    )
+                    if ok:
+                        return self._json_response(200, {"ok": True, "id": result})
+                    return self._json_response(400, {"ok": False, "error": result})
+
                 if self.path.startswith("/api/messages"):
                     length = int(self.headers.get("Content-Length", 0) or 0)
                     if length > 2048:
@@ -240,6 +370,11 @@ class MessageBoard:
                     if ok:
                         return self._json_response(200, {"ok": True, "id": result})
                     return self._json_response(400, {"ok": False, "error": result})
+
+                # /api/chat 暂缓：P2 等 team-lead 授权后再启用
+                if self.path.startswith("/api/chat"):
+                    return self._json_response(503, {"ok": False, "error": "功能暂未开放"})
+
                 self._json_response(404, {"ok": False, "error": "not found"})
 
         return Handler

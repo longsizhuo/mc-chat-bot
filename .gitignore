@@ -14,3 +14,5 @@ data/today_prophecy.json
 data/landmarks.json
 data/weekly_shame.json
 data/.roast_state.json
+data/chat_log.json
+data/today_mood.json

@@ -109,7 +109,11 @@ class DailyProphecy:
     # ========== 早上 8:00：发预言 ==========
 
     def _pick_player(self) -> Optional[tuple[str, dict]]:
-        """从 stats 里随机挑一个最近 7 天活跃玩家。"""
+        """从 stats 里随机挑一个最近 7 天活跃玩家，避开昨天已经预言过的人。
+
+        预言要在当晚验证"他今天是否真死了"，所以候选必须是"今天可能上线"的活跃玩家，
+        不能扩到历史池（不上线的人永远 miss，验证环节会失效）。
+        """
         if not self.stats_path.exists():
             return None
         try:
@@ -126,7 +130,19 @@ class DailyProphecy:
                 continue
             candidates.append((name, p))
 
-        return random.choice(candidates) if candidates else None
+        if not candidates:
+            return None
+
+        # 避开昨天预言过的人（候选只剩 1 个时也要避开 → 直接放弃今天的预言，
+        # 避免连续两天点同一个人）
+        last_player = self._load_state().get("player")
+        if last_player:
+            filtered = [c for c in candidates if c[0] != last_player]
+            if not filtered:
+                return None
+            candidates = filtered
+
+        return random.choice(candidates)
 
     def _death_hints(self, player_data: dict) -> str:
         """格式化玩家近期死因，给 AI 做预言依据。"""

@@ -15,7 +15,10 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .providers import AIProvider
 
 
 CST = timezone(timedelta(hours=8))
@@ -32,12 +35,20 @@ MAX_RECORDS = 500
 QUERY_DELAY = 2.0
 
 
+_LAST_WORDS_PROMPT = (
+    "你是一个 Minecraft 服务器的旁白。玩家 {player} 刚刚死亡，死亡原因：{cause}。"
+    "请用第一人称为这个玩家生成一句简短的「遗言」，15 字以内，语气可以搞笑、悲壮或荒诞，"
+    "要贴合死亡方式。只返回遗言本身，不要引号，不要解释。"
+)
+
+
 class DeathHeatmap:
     """死亡坐标记录器。"""
 
-    def __init__(self, storage_path: str, rcon):
+    def __init__(self, storage_path: str, rcon, ai_provider: Optional["AIProvider"] = None):
         self.storage_path = Path(storage_path)
         self.rcon = rcon
+        self.ai = ai_provider
         self._lock = threading.Lock()
 
     def _load(self) -> list[dict]:
@@ -82,6 +93,20 @@ class DeathHeatmap:
                 dim_m = NBT_DIM_RE.search(resp)
                 dimension = dim_m.group(1) if dim_m else "minecraft:overworld"
 
+                # AI 生成遗言（可选，失败不阻断记录）
+                last_words: Optional[str] = None
+                if self.ai:
+                    try:
+                        prompt = _LAST_WORDS_PROMPT.format(player=player, cause=cause)
+                        last_words = self.ai.chat(
+                            [{"role": "user", "content": prompt}],
+                            system_prompt="你是一个 Minecraft 服务器旁白，幽默简洁。",
+                        )
+                        if last_words:
+                            last_words = last_words.strip().strip('"').strip("「」")[:50]
+                    except Exception as lwe:
+                        print(f"[DeathHeatmap] 遗言生成失败: {lwe}")
+
                 record = {
                     "player": player,
                     "cause": cause,
@@ -91,6 +116,8 @@ class DeathHeatmap:
                     "dimension": dimension,
                     "ts": int(time.time()),
                 }
+                if last_words:
+                    record["last_words"] = last_words
                 with self._lock:
                     data = self._load()
                     data.append(record)
