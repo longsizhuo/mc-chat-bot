@@ -8,6 +8,12 @@
 
 ---
 
+## 2026-05-13
+
+- **`21f3f12` feat+refactor**: 三角洲行动 QQ bot + gamebot/ 三层架构。新增 `scripts/df_stats/` CLI（封装腾讯 AMS：战绩/生涯/9 个赛季/每日密码，9 个分析命令），新增 `gamebot/games/df/` 桥接（定时 06:00 播报密码 + 关键词触发 + 干员别名"我玩XX"模糊匹配 + AI tool 调用 `[CMD:df_*]`），严格群隔离（DF 功能限定 257381453 群）。同时把 `mcbot/` 整体 refactor 成 `gamebot/{core,games/{mc,df}}` 三层架构：`core/` 放 LLM provider + OneBot QQ 桥（平台无关），`games/mc/` 是原 mcbot 整体迁移（28 个文件，相对 import 全保留），`games/df/` 是新模块。修复 refactor 引入的 `Path(__file__).parent.parent` 路径 bug（影响 8 处 `data/*.json` runtime state）。新增 `CLAUDE.md` 强调改代码必须同步改文档 + 每个子目录补 README.md。配置文件新增 `df_stats:` 段（4 个 curl 路径 + 别名表 + 广播时刻），`qq:` 段新增 `extra_group_ids`。
+
+---
+
 ## 2026-04-14
 
 - **`659b0ff` feat**: bot 启动时自动重新断言 gamerule。观察到 `keep_inventory` 会被某种途径悄悄关掉（世界重载？手动误操作？），不查根因了，改为每次 bot 启动时重新跑一遍 `gamerule keep_inventory true`（并可通过 `bot.startup_commands: [...]` 配置任意命令列表）。新建了一个 daemon 线程等 RCON 就绪（最多 30×5s 重试），然后顺序执行。
