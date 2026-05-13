@@ -15,6 +15,7 @@ from .retrieval import (
     render_facts_block,
     render_episodes_block,
 )
+from .search import SearchIndex, HAS_FTS5
 
 __all__ = [
     "Fact",
@@ -26,4 +27,6 @@ __all__ = [
     "retrieve_relevant_episodes",
     "render_facts_block",
     "render_episodes_block",
+    "SearchIndex",
+    "HAS_FTS5",
 ]

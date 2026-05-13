@@ -160,7 +160,20 @@ class ChatBot:
             max_facts=config.bot.max_facts,
         )
         self.max_history = config.bot.max_history
-        print(f"[MCBot] Memory: {memory_path}")
+        print(f"[MCBot] Memory (player-scoped): {memory_path}")
+
+        # 通用 agent memory（跨玩家共享的事实/事件流；与 self.memory 并存）
+        # 未来 MC 侧想加"全服公开事实库"或"跨 player facts"用这个
+        from gamebot.core.memory import GameMemory
+        mc_memory_root = Path(__file__).parents[3] / "data" / "memory" / "mc"
+        self.game_memory = GameMemory(root=mc_memory_root)
+        # 启动时记一笔 episode 作为生命周期信号
+        self.game_memory.add_episode(
+            type="system",
+            content=f"bot 启动 (name={config.bot.name})",
+            actors=["bot"],
+        )
+        print(f"[MCBot] GameMemory: {mc_memory_root} (facts={len(self.game_memory.facts)}, eps={len(self.game_memory.episodes)})")
 
         registry_path = Path(__file__).parents[3] / "data" / "registry.json"
         try:

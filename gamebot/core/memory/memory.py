@@ -24,6 +24,7 @@ from .retrieval import (
     render_facts_block,
     render_episodes_block,
 )
+from .search import SearchIndex, HAS_FTS5
 
 
 class GameMemory:
@@ -41,6 +42,8 @@ class GameMemory:
         self.root = Path(root)
         self.facts = FactStore(self.root / "facts.json")
         self.episodes = EpisodeLog(self.root / "episodes.jsonl")
+        # FTS5 索引（可选，lazy build）
+        self._search: Optional[SearchIndex] = None
 
     # ============ Facts API ============
 
@@ -134,11 +137,39 @@ class GameMemory:
             parts.append("### 最近相关事件\n" + render_episodes_block(episodes))
         return "\n\n".join(parts) if parts else "（没有匹配到任何相关记忆）"
 
+    # ============ FTS5 全文检索（Phase 2 优化）============
+
+    def _ensure_search(self) -> SearchIndex:
+        """懒加载 + 自动重建 FTS5 索引。
+
+        触发：第一次调 search() 时建索引；后续可手动 rebuild_search() 重建。
+        小数据量下 rebuild 很快（几千条 facts 也就毫秒级）。
+        """
+        if self._search is None:
+            self._search = SearchIndex(self.root / "search.db")
+            self._search.rebuild_from(self.facts, self.episodes)
+        return self._search
+
+    def search(self, query: str, top_k: int = 10) -> list[dict]:
+        """全文检索 facts + episodes。
+
+        返回 list[{doc_type, doc_id, subject, content}]，按 BM25 相关性降序。
+        如果 SQLite 没装 FTS5 模块自动退化到 LIKE。
+        """
+        idx = self._ensure_search()
+        return idx.search(query, top_k)
+
+    def rebuild_search(self) -> dict:
+        """重建 FTS5 索引（数据大量写入后调用）。"""
+        idx = self._ensure_search()
+        return idx.rebuild_from(self.facts, self.episodes)
+
     def stats(self) -> dict:
         """memory 大致统计，调试 / 状态检查用。"""
         return {
             "fact_count": len(self.facts),
             "episode_count": len(self.episodes),
             "subjects": len(self.all_subjects()),
+            "fts5": HAS_FTS5,
             "root": str(self.root),
         }
