@@ -10,6 +10,7 @@
 
 ## 2026-05-13
 
+- **`92f67fb` feat(df)**: 加 free-form 队员档案笔记机制（`df_note` / `df_notes` / `df_clear_notes`）。诊断：用户告诉 bot "风格一双修医疗+信息，王十十十十十寸主玩露娜"，AI 回"已记录"但没真持久化——alias 系统是 1:1，无法表达"一人多干员/角色偏好"。修：加 `data/df_squad_notes.json` 存 list[str]，AI 看到非结构化事实必须调 `df_note` 写入；system prompt 启动读 notes 注入【队员档案】段；明确指令"光说不调工具=不算记录"。实测有效，重启后档案还在。
 - **`d39f0a6` feat(df)**: 加 df_unknowns 工具按"3 人固定队-已注册 alias"排除法识别群里没注册 alias 的队友干员 ID。修两个数据 bug：(1) teammateArr 含全房间玩家（不只自己队），加 TeamId 过滤；(2) 跳过 own_ops_history 而不光是 vopenid（user 切过主玩干员：威龙→疾风）。把用户亲述的"3 人固定队规则（医疗+信息位 / 信息位）"和角色段映射（10xxx=突击/20xxx=支援医疗/30xxx=工程/40xxx=信息侦察）写入 system prompt，bot 能主动推理"#20005 出现 50 次 + 20xxx 段 → 很可能是医疗位队友"，问群友确认即可 set_alias。
 - **`7c67eff` fix(df)**: "我们/上把"被"我歧义处理"过度拦截导致 bot 拒答战绩查询。修：把"我"分成"我们"和"我自己"两种语义，"我们/上把"直接调 df_match 1 拿队伍视角战报；"我自己"才走单人识别分支；显式说明"我不是龙龙"这种半玩笑昵称当普通群友处理。顺手把 config.yml ai.max_tokens 从 200 调到 800（不入库）。
 - **`ce390ed` fix(df)**: bot 把已注册昵称当陌生干员瞎调 df_lookup 的 bug。群友实测："@王十十十十十寸 现在玩的老黑"——bot 居然调 `df_lookup '老黑'` 当干员查（老黑明明在 alias 表里=牧羊人）。修：(1) system prompt 把已注册别名列表移到顶部，加硬性判断顺序（名字先查别名表→再查干员表→都没有才调 lookup）；(2) 加三个 alias 操作工具 `df_set_alias` / `df_rename_alias` / `df_unset_alias`，AI 可主动改 alias 表；(3) 加多种语义识别指引（"X 现在玩 Y" / "X 改名 Y" / "@A 是 B" 等）；(4) 加"我"歧义处理（cookie 只龙龙一份，其他人说"我"不要瞎查）。

@@ -16,8 +16,9 @@
 | 文件 | 职责 |
 |---|---|
 | `bridge.py` | `DFStatsBridge` —— 路由群消息、定时广播、关键词识别、AI converse 循环。`reply()` 接收 `at_qq_list` 处理 @ 引用 |
-| `abilities.py` | `DFAbilities` —— LLM 工具集，含 system prompt 生成（**教练人设**：温和、专业、不嘲讽）|
+| `abilities.py` | `DFAbilities` —— LLM 工具集（包括 `df_set_alias` / `df_note` / `df_lookup` 等），`build_system_prompt()` 从 `prompt.md` 读模板 |
 | `aliases.py` | `DFAliases` —— 群友昵称 ↔ 干员 ID 映射，含模糊匹配 + "@XX 为 YY" 句式解析 |
+| **`prompt.md`** | **system prompt 模板**（教练人设、工具调用纪律、各种语义识别规则）。改 prompt 文案直接编辑这个 `.md` 文件，下一条群消息就生效，**不用动代码** |
 
 ## AI 工具列表
 

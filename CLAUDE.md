@@ -35,6 +35,25 @@ mc-chat-bot/
 | 改公共/对外行为 | 根 `README.md` 对应章节 |
 | 大改动（重构、新功能） | `CHANGELOG.md` 条目 |
 
+### 1.5. Prompt 与代码分离原则 ⚠️
+
+**system prompt / 长 LLM 指令模板不要硬编码在 .py 里**，放独立 `.md` 文件：
+
+| 模块 | prompt 文件位置 |
+|---|---|
+| `gamebot/games/df/` | [`gamebot/games/df/prompt.md`](./gamebot/games/df/prompt.md) |
+| 新游戏模块 | `gamebot/games/<name>/prompt.md` |
+
+代码侧只负责：
+1. 读模板文件
+2. 用 `.format(**placeholders)` 填充动态字段（alias 表、笔记、工具列表等）
+
+好处：**改 prompt 文案不用动 Python，下一条群消息就生效**（每次 build_system_prompt 会重读文件）。
+
+占位符约定：所有 `{xxx}` 在模板里都会被 `.format()` 替换。**字面**花括号要写 `{{` 和 `}}`。
+
+文件顶部用 HTML 注释 `<!-- ... -->` 写"可用占位符清单"和使用说明，运行时这段会被剥掉不进 prompt。
+
 **这是硬规则**：用户多次反馈"push 后必须补开发文档，不能光丢代码"。不写文档的 PR 视为未完工。
 
 ### 2. 每个文件夹必须有 README.md
