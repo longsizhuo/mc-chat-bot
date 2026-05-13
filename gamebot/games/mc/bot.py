@@ -12,6 +12,8 @@ from .rcon import RCON
 from .abilities import build_system_prompt
 from .stats import PlayerStats
 from .qq_bridge import QQBridge
+# 三角洲行动桥接已迁移到 gamebot/games/df/（refactor phase 1）
+from gamebot.games.df.bridge import DFStatsBridge
 from .memory import Memory
 from .registry import Registry
 from .weekly_diary import WeeklyDiary
@@ -117,6 +119,24 @@ class ChatBot:
                 ws_port=config.qq.ws_port,
                 bot_name=config.bot.name,
                 on_qq_message=self._on_qq_message,
+                extra_group_ids=config.qq.extra_group_ids,
+            )
+
+        # 三角洲行动数据桥接（仅在 DF 群响应；AI 工具调用复用 self.ai）
+        self.df_stats: DFStatsBridge | None = None
+        if config.df_stats.enabled and config.df_stats.group_id:
+            self.df_stats = DFStatsBridge(
+                secret_curl=config.df_stats.secret_curl,
+                group_id=config.df_stats.group_id,
+                send_to_group=self.qq.send_to_group if self.qq else None,
+                aliases_path=config.df_stats.aliases_path,
+                broadcast_hour=config.df_stats.broadcast_hour,
+                enabled=True,
+                record_curl=config.df_stats.record_curl,
+                profile_curl=config.df_stats.profile_curl,
+                season_curl=config.df_stats.season_curl,
+                # 跟 MC bot 共用同一个 AI provider（DeepSeek/OpenAI/...）
+                ai_provider=self.ai if config.df_stats.enable_ai else None,
             )
         self.system_prompt = build_system_prompt(
             bot_name=config.bot.name,
@@ -141,7 +161,7 @@ class ChatBot:
         self.max_history = config.bot.max_history
         print(f"[MCBot] Memory: {memory_path}")
 
-        registry_path = Path(__file__).parent.parent / "data" / "registry.json"
+        registry_path = Path(__file__).parents[3] / "data" / "registry.json"
         try:
             self.registry = Registry(registry_path)
             print(f"[MCBot] Registry: v{self.registry.version} ({len(self.registry.items)} items, {len(self.registry.blocks)} blocks)")
@@ -173,7 +193,7 @@ class ChatBot:
         )
 
         # 小方今日预言（8:00 发 / 23:00 验证）
-        prophecy_state = str(Path(__file__).parent.parent / "data" / "today_prophecy.json")
+        prophecy_state = str(Path(__file__).parents[3] / "data" / "today_prophecy.json")
         self.daily_prophecy = DailyProphecy(
             stats_path=stats_path_for_roast,
             logs_dir=logs_dir,
@@ -183,7 +203,7 @@ class ChatBot:
         )
 
         # 小方今日心情（09:00 生成，存 data/today_mood.json，供 /api/mood 端点读取）
-        mood_state = str(Path(__file__).parent.parent / "data" / "today_mood.json")
+        mood_state = str(Path(__file__).parents[3] / "data" / "today_mood.json")
         self.daily_mood = DailyMood(
             stats_path=stats_path_for_roast,
             state_path=mood_state,
@@ -191,19 +211,19 @@ class ChatBot:
         )
 
         # 聊天日志（用于本周词云）
-        chat_log_path = str(Path(__file__).parent.parent / "data" / "chat_log.json")
+        chat_log_path = str(Path(__file__).parents[3] / "data" / "chat_log.json")
         self.chat_logger = ChatLogger(chat_log_path)
 
         # 玩家留言板（网站发留言，玩家上线时游戏内播报）
         # 同时给网站提供 /api/online 端点（当前在线 + 本次会话时长）
         # 时间胶囊（必须在 MessageBoard 前建，MessageBoard 依赖它）
-        capsules_path = str(Path(__file__).parent.parent / "data" / "capsules.json")
+        capsules_path = str(Path(__file__).parents[3] / "data" / "capsules.json")
         self.time_capsule = TimeCapsule(
             storage_path=capsules_path,
             send_to_qq=self.qq.send_to_qq if self.qq else None,
         )
 
-        messages_path = str(Path(__file__).parent.parent / "data" / "messages.json")
+        messages_path = str(Path(__file__).parents[3] / "data" / "messages.json")
 
         # 游客版 system prompt：小方会聊天，但不执行任何 RCON 命令
         _stats_path_for_chat = Path(config.server_dir) / "player_stats.json"
@@ -324,7 +344,7 @@ class ChatBot:
         )
 
         # 死亡热点地图（死亡时异步查 LastDeathLocation，存坐标给前端画热力图）
-        deaths_path = str(Path(__file__).parent.parent / "data" / "deaths.json")
+        deaths_path = str(Path(__file__).parents[3] / "data" / "deaths.json")
         self.death_heatmap = DeathHeatmap(
             storage_path=deaths_path,
             rcon=self.rcon,
@@ -338,7 +358,7 @@ class ChatBot:
         )
 
         # 玩家地标系统（游戏内命令：标记 / 去哪 / 地标 / 删除地标）
-        landmarks_path = str(Path(__file__).parent.parent / "data" / "landmarks.json")
+        landmarks_path = str(Path(__file__).parents[3] / "data" / "landmarks.json")
         self.landmarks = LandmarksManager(
             storage_path=landmarks_path,
             rcon=self.rcon,
@@ -498,14 +518,23 @@ class ChatBot:
         if forward_qq and self.qq:
             self.qq.forward_mc_event("bot", f"[{self.bot_name}] {message}")
 
-    def _on_qq_message(self, nickname: str, message: str):
-        """Handle message from QQ group → AI reply + forward to both MC and QQ."""
-        # Strip CQ codes (at mentions etc.)
+    def _on_qq_message(self, group_id: int, nickname: str, message: str):
+        """Handle message from QQ group → 按群路由 → AI 回复 / 三角洲 / 投票。
+
+        - 三角洲群：只走 DF 桥接（关键词 + 别名学习），不走 AI 不转发到 MC
+        - MC 主群：原有逻辑（投票、AI、转发到游戏内）
+        """
         import re
         clean_msg = re.sub(r"\[CQ:[^\]]+\]", "", message).strip()
         if not clean_msg:
             return
 
+        # 三角洲群：严格隔离，只走 DF 处理；不走 AI / 不转发到游戏
+        if self.df_stats and group_id == self.df_stats.group_id:
+            self.df_stats.reply(group_id, nickname, clean_msg)
+            return
+
+        # MC 主群以下是原有逻辑
         # 优先：如果是纯数字 1/2/3 且有活跃投票，走投票记录（不走 AI 不转发）
         if clean_msg in {"1", "2", "3"} and self.weekly_shame._candidates:
             self.weekly_shame.record_vote(nickname, clean_msg)
@@ -707,6 +736,10 @@ class ChatBot:
 
         # 启动本周悬案定时器（周三 19:00）
         self.weekly_mystery.start()
+
+        # 启动三角洲数据桥接（每日密码 06:00 广播）
+        if self.df_stats:
+            self.df_stats.start()
 
         # 启动留言板 HTTP 服务（接收网站 POST / 提供 GET）
         self.messageboard.start()

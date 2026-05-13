@@ -59,3 +59,17 @@ qq:
   api_url: "http://localhost:3000"  # OneBot HTTP API address
   group_id: 0                       # QQ group number
   listen_port: 5800                 # Port to receive OneBot events (HTTP POST)
+
+# ===== Delta Force Data Bridge =====
+# 接入 scripts/df_stats/，定时播报三角洲今日地图密码 + 关键词查询 + 干员别名映射。
+# 所有 DF 功能严格限定在 group_id 这一个群，不会污染 MC 主群。
+#
+# 关键词触发（仅在 DF 群）：
+#   今日密码 / 三角洲密码 / 地图密码 / df密码 / df secret  → 返回 5 张图密码
+#   "我玩牧羊人" / "牧羊人是我" / "alias 老王 30008"        → 记录干员别名
+df_stats:
+  enabled: false
+  group_id: 0                                                    # 三角洲群号（如 257381453）
+  secret_curl: "scripts/df_stats/credentials/raw_curl_secret.sh" # 抓包文件
+  aliases_path: "data/df_aliases.json"                           # 别名表存储
+  broadcast_hour: 6                                              # 每日密码广播时刻（北京时间 0-23）

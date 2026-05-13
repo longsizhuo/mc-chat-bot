@@ -16,3 +16,11 @@ data/weekly_shame.json
 data/.roast_state.json
 data/chat_log.json
 data/today_mood.json
+data/df_aliases.json
+
+# refactor 备份目录（验证稳定后可删）
+mcbot.backup.*/
+
+# 三角洲行动抓包凭证（含 access_token，敏感）
+scripts/df_stats/credentials/raw_curl*.sh
+scripts/df_stats/credentials/parsed.json

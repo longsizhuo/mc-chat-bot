@@ -1,0 +1,7 @@
+# 凭证不上传
+credentials/raw_curl.sh
+credentials/parsed.json
+credentials/*.cookie
+*.pyc
+__pycache__/
+.venv/

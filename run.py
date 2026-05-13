@@ -5,9 +5,9 @@ import argparse
 import threading
 import sys
 
-from mcbot.config import load_config
-from mcbot.bot import ChatBot
-from mcbot.backup import DayBackup
+from gamebot.games.mc.config import load_config
+from gamebot.games.mc.bot import ChatBot
+from gamebot.games.mc.backup import DayBackup
 
 
 def main():

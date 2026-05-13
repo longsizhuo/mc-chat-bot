@@ -13,7 +13,12 @@ from urllib.error import URLError
 
 
 class QQBridge:
-    """Bridges MC chat events to/from a QQ group via OneBot 11 protocol."""
+    """Bridges MC chat events to/from QQ group(s) via OneBot 11 protocol.
+
+    group_id: 主群（MC 群），所有原有 MC 事件都转发到这个群
+    extra_group_ids: 额外监听的群（如三角洲群）— 收消息但不主动转发 MC 事件过去
+                     需要单独通过 send_to_group(gid, msg) 发消息
+    """
 
     def __init__(
         self,
@@ -21,19 +26,33 @@ class QQBridge:
         group_id: int,
         ws_port: int = 6101,
         bot_name: str = "MCBot",
-        on_qq_message: Optional[Callable[[str, str], None]] = None,
+        on_qq_message: Optional[Callable[[int, str, str], None]] = None,
+        extra_group_ids: Optional[list[int]] = None,
     ):
         self.api_url = api_url.rstrip("/")
-        self.group_id = group_id
+        self.group_id = group_id  # 主群
+        self.extra_group_ids = list(extra_group_ids or [])
         self.ws_port = ws_port
         self.bot_name = bot_name
-        self.on_qq_message = on_qq_message
+        self.on_qq_message = on_qq_message  # callback signature: (group_id, nickname, message)
+
+    @property
+    def all_group_ids(self) -> set[int]:
+        """所有 bot 监听的群 ID。"""
+        return {self.group_id} | set(self.extra_group_ids)
 
     def send_to_qq(self, message: str):
-        """Send a message to the QQ group via HTTP API."""
+        """Send a message to the PRIMARY group (MC 群).
+
+        要发到副群（三角洲群等），用 send_to_group(group_id, message)。
+        """
+        self.send_to_group(self.group_id, message)
+
+    def send_to_group(self, group_id: int, message: str):
+        """发消息到指定群（主群、副群都行）。"""
         try:
             data = json.dumps({
-                "group_id": self.group_id,
+                "group_id": group_id,
                 "message": message,
             }).encode()
             req = Request(
@@ -45,9 +64,9 @@ class QQBridge:
             with urlopen(req, timeout=5) as resp:
                 result = json.loads(resp.read())
                 if result.get("retcode") != 0:
-                    print(f"[QQ] Send error: {result}")
+                    print(f"[QQ] Send error to {group_id}: {result}")
         except (URLError, OSError, json.JSONDecodeError) as e:
-            print(f"[QQ] Send failed: {e}")
+            print(f"[QQ] Send failed to {group_id}: {e}")
 
     def forward_mc_event(self, event_type: str, message: str):
         """Forward an MC event to QQ group with formatting."""
@@ -67,7 +86,8 @@ class QQBridge:
             return
         if data.get("message_type") != "group":
             return
-        if data.get("group_id") != self.group_id:
+        gid = data.get("group_id")
+        if gid not in self.all_group_ids:
             return
 
         raw_message = data.get("raw_message", "")
@@ -82,10 +102,10 @@ class QQBridge:
         if f"[CQ:at,qq={self_id}]" not in raw_message:
             return
 
-        print(f"[QQ] {nickname}: {raw_message}")
+        print(f"[QQ:{gid}] {nickname}: {raw_message}")
 
         if self.on_qq_message:
-            self.on_qq_message(nickname, raw_message)
+            self.on_qq_message(gid, nickname, raw_message)
 
     # ---- WebSocket client (connect to NapCat's WS server) ----
 

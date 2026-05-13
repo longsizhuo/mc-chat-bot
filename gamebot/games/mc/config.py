@@ -7,47 +7,9 @@ from typing import Optional
 
 import yaml
 
-
-@dataclass
-class AIConfig:
-    provider: str = "deepseek"
-    api_key: str = ""
-    base_url: str = ""
-    model: str = ""
-    temperature: float = 0.8
-    max_tokens: int = 200
-
-    # Provider defaults
-    PROVIDERS = {
-        "deepseek": {
-            "base_url": "https://api.deepseek.com",
-            "model": "deepseek-chat",
-        },
-        "openai": {
-            "base_url": "https://api.openai.com/v1",
-            "model": "gpt-4o-mini",
-        },
-        "anthropic": {
-            "base_url": "https://api.anthropic.com",
-            "model": "claude-sonnet-4-20250514",
-        },
-        "ollama": {
-            "base_url": "http://localhost:11434/v1",
-            "model": "llama3",
-        },
-        "custom": {
-            "base_url": "",
-            "model": "",
-        },
-    }
-
-    def resolve(self):
-        """Fill in defaults based on provider."""
-        defaults = self.PROVIDERS.get(self.provider, self.PROVIDERS["custom"])
-        if not self.base_url:
-            self.base_url = defaults["base_url"]
-        if not self.model:
-            self.model = defaults["model"]
+# AIConfig 已迁移到 gamebot/core/ai_provider.py（refactor phase 2）
+# 这里 re-export 保持向后兼容
+from gamebot.core.ai_provider import AIConfig
 
 
 @dataclass
@@ -90,8 +52,29 @@ class EventsConfig:
 class QQConfig:
     enabled: bool = False
     api_url: str = "http://localhost:3000"
-    group_id: int = 0
+    group_id: int = 0          # MC 主群
     ws_port: int = 6101
+    extra_group_ids: list = field(default_factory=list)  # 额外监听的群（DF 群等）
+
+
+@dataclass
+class DFStatsConfig:
+    """三角洲行动数据桥接配置。"""
+    enabled: bool = False
+    # 三角洲群号 —— 所有 DF 功能仅限这个群响应
+    group_id: int = 0
+    # 抓包文件路径（绝对路径或相对于 mc-chat-bot 工作目录）
+    secret_curl: str = "scripts/df_stats/credentials/raw_curl_secret.sh"
+    # 战绩/角色/赛季 curl（可选，AI 工具用；缺了的工具会优雅失败）
+    record_curl: str = "scripts/df_stats/credentials/raw_curl.sh"
+    profile_curl: str = "scripts/df_stats/credentials/raw_curl_profile.sh"
+    season_curl: str = "scripts/df_stats/credentials/raw_curl_season.sh"
+    # 干员别名表存储路径
+    aliases_path: str = "data/df_aliases.json"
+    # 每天几点广播今日密码（CST，0-23）
+    broadcast_hour: int = 6
+    # 是否启用 AI 闲聊 + 工具调用（关键词/别名命中时不走 AI；都不命中且 enable_ai=true 才走）
+    enable_ai: bool = True
 
 
 @dataclass
@@ -102,6 +85,7 @@ class Config:
     events: EventsConfig = field(default_factory=EventsConfig)
     backup: BackupConfig = field(default_factory=BackupConfig)
     qq: QQConfig = field(default_factory=QQConfig)
+    df_stats: DFStatsConfig = field(default_factory=DFStatsConfig)
     server_dir: str = "."
     log_file: str = "logs/latest.log"
 
@@ -178,7 +162,27 @@ def load_config(path: str) -> Config:
         api_url=qq.get("api_url", "http://localhost:3000"),
         group_id=qq.get("group_id", 0),
         ws_port=qq.get("ws_port", 6101),
+        extra_group_ids=list(qq.get("extra_group_ids", []) or []),
     )
+
+    # DFStats Bridge（三角洲行动数据桥接）
+    dfs = raw.get("df_stats", {})
+    config.df_stats = DFStatsConfig(
+        enabled=dfs.get("enabled", False),
+        group_id=dfs.get("group_id", 0),
+        secret_curl=dfs.get("secret_curl", "scripts/df_stats/credentials/raw_curl_secret.sh"),
+        record_curl=dfs.get("record_curl", "scripts/df_stats/credentials/raw_curl.sh"),
+        profile_curl=dfs.get("profile_curl", "scripts/df_stats/credentials/raw_curl_profile.sh"),
+        season_curl=dfs.get("season_curl", "scripts/df_stats/credentials/raw_curl_season.sh"),
+        aliases_path=dfs.get("aliases_path", "data/df_aliases.json"),
+        broadcast_hour=dfs.get("broadcast_hour", 6),
+        enable_ai=dfs.get("enable_ai", True),
+    )
+
+    # DF 群自动加进 QQ 监听列表（如果用户没显式加）
+    if config.df_stats.enabled and config.df_stats.group_id:
+        if config.df_stats.group_id not in config.qq.extra_group_ids:
+            config.qq.extra_group_ids.append(config.df_stats.group_id)
 
     # Server
     config.server_dir = raw.get("server_dir", ".")

@@ -139,8 +139,23 @@ qq:                          # 可选：OneBot11 QQ 桥接
 
 ---
 
+## 项目结构（2026-05 起的通用 bot 架构）
+
+```
+gamebot/
+├── core/           平台无关：LLM provider、OneBot QQ 桥
+└── games/
+    ├── mc/         Minecraft 服务器小方（本仓主体）
+    └── df/         三角洲行动小助手（每日密码 + 战绩查询）
+```
+
+加新游戏 = 复制一份 `games/<name>/`。详细约定见 [CLAUDE.md](./CLAUDE.md) 和 [gamebot/README.md](./gamebot/README.md)。
+
+**附赠 · 三角洲行动 QQ 群 bot**：在三角洲群里 @bot 就能查战绩、问建议、看每日密码。详见 [gamebot/games/df/README.md](./gamebot/games/df/README.md) 和独立 CLI 工具 [scripts/df_stats/README.md](./scripts/df_stats/README.md)。
+
 ## 更多
 
+- [**CLAUDE.md**](./CLAUDE.md) · 给 AI Agent 看的项目维护守则（改代码必须同步改文档等）
 - [**CHANGELOG**](./CHANGELOG.md) · 按 commit 为节点的改动记录
 - [**Agent Skill**](./deploy-mcbot/SKILL.md) · 兼容 [Agent Skills](https://agentskills.io)，Claude Code / Cursor 可自动部署
 - [**mc-website**](https://github.com/longsizhuo/mc-website) · 服务器官网源码
