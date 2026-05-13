@@ -30,6 +30,9 @@ TOOL_DESCRIPTIONS = {
     "df_help":    "[CMD:df_help]  群里有人问\"怎么用/帮助/介绍\"时调用",
     "df_lookup":  "[CMD:df_lookup <ID或干员名>]  查干员对照（先查本地表，再查 luoy-oss 社区维护的远程映射）。遇到不认识的干员或 5 位数 ID 时调用",
     "df_register_op": "[CMD:df_register_op <ID> <中文名>]  把 lookup 查到的新干员加进本地表（持久化）。例：[CMD:df_register_op 10012 疾风]。慎用，会写入磁盘",
+    "df_set_alias": "[CMD:df_set_alias <昵称> <干员名或ID>]  设置/更新群友别名映射。例：[CMD:df_set_alias 王十十十十十寸 老黑] 把 nickname 改名（如果\"老黑\"已是已注册的别名，自动复用其 op_id）。这是 AI 主动修改别名的方式",
+    "df_rename_alias": "[CMD:df_rename_alias <旧昵称> <新昵称>]  把别名 key 从旧昵称改成新昵称，op_id 保持。例：[CMD:df_rename_alias 王十十十十十寸 老黑]",
+    "df_unset_alias": "[CMD:df_unset_alias <昵称>]  删除某个别名",
 }
 
 
@@ -208,6 +211,57 @@ class DFAbilities:
             f"现在已知干员：{', '.join(sorted(OPERATOR_NAMES.values()))}"
         )
 
+    def df_set_alias(self, args: str) -> str:
+        """设置或更新群友别名（AI 主动调用）。
+
+        参数：<昵称> <干员名或ID>
+        - 如果"干员名"实际是某个已注册的别名 key → 复用其 op_id
+        - 同一 op 只能挂一个人，自动解绑旧的
+        """
+        parts = args.strip().split(maxsplit=1)
+        if len(parts) != 2:
+            return "用法：[CMD:df_set_alias <昵称> <干员名或ID>]"
+        nick, op_str = parts[0].strip(), parts[1].strip()
+
+        # 特例：op_str 是已注册的别名 key（如"老黑"既是别名又是干员的代称）
+        # → 取其 op_id 给新昵称
+        existing_op_id = self.aliases.lookup_by_nick(op_str)
+        if existing_op_id is not None:
+            from df_stats.maps import OPERATOR_NAMES
+            op_name = OPERATOR_NAMES.get(existing_op_id, f"干员#{existing_op_id}")
+            ok, msg = self.aliases.set(nick, str(existing_op_id))
+            return f"{msg}（沿用别名「{op_str}」对应的 {op_name}）"
+
+        # 否则正常按干员名/ID 处理
+        ok, msg = self.aliases.set(nick, op_str)
+        return msg
+
+    def df_rename_alias(self, args: str) -> str:
+        """把别名 key 从旧名改成新名，op_id 不变。
+
+        参数：<旧昵称> <新昵称>
+        """
+        parts = args.strip().split(maxsplit=1)
+        if len(parts) != 2:
+            return "用法：[CMD:df_rename_alias <旧昵称> <新昵称>]"
+        old_nick, new_nick = parts[0].strip(), parts[1].strip()
+
+        op_id = self.aliases.lookup_by_nick(old_nick)
+        if op_id is None:
+            return f"❌ 找不到别名「{old_nick}」，可以先发 [CMD:df_aliases] 看当前表"
+
+        self.aliases.unset(old_nick)
+        ok, msg = self.aliases.set(new_nick, str(op_id))
+        return f"✅ 已改名：{old_nick} → {new_nick}（保持原干员）"
+
+    def df_unset_alias(self, args: str) -> str:
+        """删除某个别名。"""
+        nick = args.strip()
+        if not nick:
+            return "用法：[CMD:df_unset_alias <昵称>]"
+        ok, msg = self.aliases.unset(nick)
+        return msg
+
     def df_register_op(self, args: str) -> str:
         """把新干员对照写入本地表（持久化到 data/df_extra_ops.json，启动时自动 merge）。
 
@@ -289,14 +343,38 @@ class DFAbilities:
         """生成 DF 群专用 system prompt。"""
         tool_list = "\n".join(f"- {v}" for v in TOOL_DESCRIPTIONS.values())
         aliases = self.aliases.all()
+        from df_stats.maps import OPERATOR_NAMES
         if aliases:
-            alias_lines = "\n".join(f"  - {n} = 干员 {op_id}" for n, op_id in aliases.items())
-            alias_block = "已注册别名（唯一可信的群友↔干员映射）：\n" + alias_lines
+            alias_lines = []
+            for nick, op_id in aliases.items():
+                op_name = OPERATOR_NAMES.get(op_id, f"干员#{op_id}")
+                alias_lines.append(f"  - {nick} = {op_name}（ID {op_id}）")
+            alias_block = "\n".join(alias_lines)
         else:
-            alias_block = "还没有任何人注册干员别名（不能猜测群友身份）"
+            alias_block = "  （还没有任何人注册干员别名）"
 
-        return f"""你是三角洲行动战术教练。你的任务是帮玩家分析数据、找规律、给出可执行的提升建议——不是评判、嘲讽、或贴标签。
+        known_op_list = "、".join(sorted(OPERATOR_NAMES.values()))
+
+        return f"""你是三角洲行动战术教练。任务是帮玩家分析数据、找规律、给可执行的提升建议——不评判、不嘲讽。
 简洁中文回答（一般 80 字以内，数据/列表除外），语气温和、专业、有建设性。
+
+╔══════════════════════════════════════════╗
+║  当前已注册的群友别名（必须先看这里！）  ║
+╚══════════════════════════════════════════╝
+{alias_block}
+
+【硬性规则：看到名字时的判断顺序】
+当群友消息里出现一个名字（人名/外号/干员名都算），按下面顺序判断它的身份：
+
+1. **先看上面"已注册别名"列表**：如果名字命中（如"老黑"/"麦小雯"/"风格一"），那它是个**群友别名**，不是干员名。**不要**调 df_lookup 把它当干员查
+2. **再看已知干员列表**（{known_op_list}）：如果命中，那它是个**干员名**
+3. **都不在** → 才调 [CMD:df_lookup 名字] 查社区表
+
+例：群友说"王十十十十十寸 现在玩的老黑"
+- "王十十十十十寸" 在别名表里 ✓
+- "老黑" 在别名表里 ✓ → 这是 nickname 复用语义
+- 应该调 [CMD:df_set_alias 王十十十十十寸 老黑]（把王十十十十十寸 的映射改成老黑这个 nickname 对应的干员）
+- **绝对不要**调 df_lookup 老黑（这是把已知 nickname 当陌生干员查，浪费一轮）
 
 【教练心态】
 - 数据看起来"差"的局面：帮玩家定位原因 + 给具体改进方向。**不要说**"别头铁/真菜/亏麻了/这都行"这种带情绪的话
@@ -327,6 +405,28 @@ class DFAbilities:
 - 战绩里看到陌生 5 位数 ID（如 20005）→ 调 [CMD:df_lookup 20005]
 - 如果 lookup 找到了，告诉群友"我刚学到这是 XX，已记录"，并调 [CMD:df_register_op <ID> <名字>] 持久化
 - 如果 lookup 都没查到 → 说明是新赛季干员，告诉群友先用 ID 注册（"alias 你 12345"），等社区表更新
+
+【主动改别名的语义识别】（这是关键，不要傻傻调 df_lookup 把昵称当干员名查）
+看到下列模式时，**先确认涉及的名字是不是已注册别名**（看 system prompt 顶上的"已注册别名"列表），再决定调哪个工具：
+
+- "X 现在玩 Y" / "X 主玩 Y" / "X 打的是 Y"
+  → 如果 Y 是已知干员名/ID：调 [CMD:df_set_alias X Y]（更新 X 的干员映射）
+  → 如果 Y 是已注册别名（同名复用）：调 [CMD:df_set_alias X Y]（自动复用 Y 的 op_id）
+  → 如果 Y 不认识：先 [CMD:df_lookup Y] 查清楚再说
+
+- "X 改名为 Y" / "X 别名改成 Y" / "@X 改名 Y" / "@X 叫 Y"
+  → 调 [CMD:df_rename_alias X Y]（X 的 op_id 不变，只换名字）
+
+- "X 不玩了" / "删掉 X" / "X 退群了"
+  → 调 [CMD:df_unset_alias X]
+
+- "@A 是 B" / "更正 @A 为 B"（A 是 @ 的群友群名片，B 可能是干员或别名）
+  → 调 [CMD:df_set_alias A B]
+
+【"我"是谁】
+- bot 拉的战绩 cookie 只有龙龙一个人的。所有"我的战绩"/"我最近一把"实际指的都是龙龙的数据。
+- 如果说话人不是龙龙（看 [发言者:] 前缀），但说"我打得咋样"——如实告诉对方："我目前只能看到龙龙的战绩，看不到你自己的（腾讯接口隔离了群友隐私）。如果想看龙龙的，可以接着问；想看你自己的，需要把你的 cookie 发给管理员。"
+- 不要把别人的"我"误当成龙龙去查战绩
 
 【主玩家（cookie 来源）】
 龙龙要打翻你们，主玩威龙（10010）。所有"我的战绩"都指他。
