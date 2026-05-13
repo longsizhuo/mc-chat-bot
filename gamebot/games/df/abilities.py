@@ -33,6 +33,7 @@ TOOL_DESCRIPTIONS = {
     "df_set_alias": "[CMD:df_set_alias <昵称> <干员名或ID>]  设置/更新群友别名映射。例：[CMD:df_set_alias 王十十十十十寸 老黑] 把 nickname 改名（如果\"老黑\"已是已注册的别名，自动复用其 op_id）。这是 AI 主动修改别名的方式",
     "df_rename_alias": "[CMD:df_rename_alias <旧昵称> <新昵称>]  把别名 key 从旧昵称改成新昵称，op_id 保持。例：[CMD:df_rename_alias 王十十十十十寸 老黑]",
     "df_unset_alias": "[CMD:df_unset_alias <昵称>]  删除某个别名",
+    "df_unknowns": "[CMD:df_unknowns]  列出最近战绩里**经常一起开黑但还没注册 alias 的队友干员 ID**。bot 可主动调用问\"X 是谁\"，用排除法识别固定队里没注册的人",
 }
 
 
@@ -262,6 +263,91 @@ class DFAbilities:
         ok, msg = self.aliases.unset(nick)
         return msg
 
+    def df_unknowns(self, args: str) -> str:
+        """找出最近战绩里"经常一起开黑但没注册 alias 的队友干员 ID"。
+
+        排除：龙龙自己的干员、已注册 alias 的干员、纯 AI 局（无队友）。
+        给 AI 提供"排除法"识别群友的素材：
+        - 3 人队 = 龙龙 + 2 队友
+        - 如果 1 个队友 alias 已注册 → 剩下那个未识别就是固定队里没注册的人
+        """
+        from collections import Counter
+        from df_stats.maps import OPERATOR_NAMES
+        from df_stats import load_from_curl_file, fetch_all_pages
+
+        if not self.record_curl or not self.record_curl.exists():
+            return "❌ 缺 record_curl，没法分析战绩"
+
+        client = load_from_curl_file(self.record_curl)
+        records = list(fetch_all_pages(client, mode=4, max_pages=3))
+        if not records:
+            return "最近没有战绩数据"
+
+        registered_op_ids = set(self.aliases.all().values())
+
+        # 龙龙历史用过的所有干员 ID（识别"自己"那条 + 避免历史主玩干员被误判为队友）
+        # 注意：teammateArr 可能含全房间玩家（不只自己队），所以单靠 vopenid 不够
+        own_ops_history = set()
+        for r in records:
+            own = int(r.get("ArmedForceId", 0) or 0)
+            if own:
+                own_ops_history.add(own)
+
+        # 找出 user 自己当前局的 TeamId（同 TeamId 才算队友）
+        # 未识别队友 ID 频次 + 在哪几张图出现
+        unknown_counter: Counter = Counter()
+        unknown_maps: dict[int, set] = {}
+        for r in records:
+            own_op = int(r.get("ArmedForceId", 0) or 0)
+            # 找出 user 自己的 TeamId
+            own_team_id = None
+            for t in r.get("teammateArr") or []:
+                if t.get("vopenid") and int(t.get("ArmedForceId", 0) or 0) == own_op:
+                    own_team_id = t.get("TeamId")
+                    break
+
+            for t in r.get("teammateArr") or []:
+                op = int(t.get("ArmedForceId", 0) or 0)
+                if op == 0:
+                    continue
+                if t.get("vopenid"):  # 自己那条，跳
+                    continue
+                # 只统计同队队友（teammateArr 含全房间玩家）
+                if own_team_id is not None and t.get("TeamId") != own_team_id:
+                    continue
+                # 跳过自己历史用过的干员（user 切换过主玩干员，避免被自己干扰）
+                if op in own_ops_history:
+                    continue
+                if op in registered_op_ids:
+                    continue
+                unknown_counter[op] += 1
+                unknown_maps.setdefault(op, set()).add(str(r.get("MapId", "?")))
+
+        if not unknown_counter:
+            return (
+                "✅ 最近 3 页战绩里所有队友干员都已注册 alias，没有未识别的人"
+            )
+
+        # 仅看出现 >= 2 次的（一次性的不算固定队友）
+        from df_stats.maps import map_name
+        frequent = [(op, cnt) for op, cnt in unknown_counter.most_common() if cnt >= 2]
+        if not frequent:
+            return (
+                "未识别的队友干员都只出现 1 次，可能是路人或临时队友，不一定是固定开黑成员"
+            )
+
+        lines = ["以下队友经常一起开黑但还没注册 alias："]
+        for op_id, cnt in frequent[:5]:
+            op_name = OPERATOR_NAMES.get(op_id, f"干员#{op_id}")
+            maps_seen = "、".join(map_name(m) for m in list(unknown_maps[op_id])[:3])
+            lines.append(f"  • {op_name}（ID {op_id}）出现 {cnt} 次，常在 {maps_seen}")
+        lines.append("")
+        lines.append(
+            "如果你认识他们是谁，可以告诉我：[CMD:df_set_alias <群友昵称> <干员名>]"
+        )
+        lines.append("或者让本人在群里发一句\"我玩XXX\"自动注册")
+        return "\n".join(lines)
+
     def df_register_op(self, args: str) -> str:
         """把新干员对照写入本地表（持久化到 data/df_extra_ops.json，启动时自动 merge）。
 
@@ -405,6 +491,19 @@ class DFAbilities:
 - 战绩里看到陌生 5 位数 ID（如 20005）→ 调 [CMD:df_lookup 20005]
 - 如果 lookup 找到了，告诉群友"我刚学到这是 XX，已记录"，并调 [CMD:df_register_op <ID> <名字>] 持久化
 - 如果 lookup 都没查到 → 说明是新赛季干员，告诉群友先用 ID 注册（"alias 你 12345"），等社区表更新
+
+【排除法识别固定开黑队友】
+- DF 烽火行动是 **3 人队**：龙龙 + 2 队友
+- **龙龙的固定开黑队规则**（用户亲述）：
+  - 3 人队必定有龙龙
+  - 一个队友：**主玩医疗位（20xxx）+ 信息位（40xxx）**，两个角色都打
+  - 另一个队友：**信息位（40xxx）较多**
+- 角色 ID 段：10xxx=突击、20xxx=支援/医疗、30xxx=工程、40xxx=信息/侦察
+- 推理示例：
+  - 如果一局战绩里队友干员 ID 是 20005 + 40010(骇爪) → 20005 是"医疗+信息玩家"，40010 是已知"买小文"
+  - 如果一个 ID（如 20005）和另一个 ID（如 40005 露娜）频次接近且都来自 20xxx/40xxx → 大概率是**同一个人**玩两个干员
+- 主动行为：当看到群友在讨论战绩 / 战报里有未识别队友时，调 [CMD:df_unknowns]，列出"常一起开黑但没注册的干员 ID"，按角色段（20xxx/40xxx）聚类后问群友"X 干员是谁"
+- 这是 by elimination 推理：不需要群友自己来注册，bot 提示 → 用户确认 → df_set_alias 一步到位
 
 【主动改别名的语义识别】（这是关键，不要傻傻调 df_lookup 把昵称当干员名查）
 看到下列模式时，**先确认涉及的名字是不是已注册别名**（看 system prompt 顶上的"已注册别名"列表），再决定调哪个工具：
