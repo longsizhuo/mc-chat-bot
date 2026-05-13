@@ -34,6 +34,9 @@ TOOL_DESCRIPTIONS = {
     "df_rename_alias": "[CMD:df_rename_alias <旧昵称> <新昵称>]  把别名 key 从旧昵称改成新昵称，op_id 保持。例：[CMD:df_rename_alias 王十十十十十寸 老黑]",
     "df_unset_alias": "[CMD:df_unset_alias <昵称>]  删除某个别名",
     "df_unknowns": "[CMD:df_unknowns]  列出最近战绩里**经常一起开黑但还没注册 alias 的队友干员 ID**。bot 可主动调用问\"X 是谁\"，用排除法识别固定队里没注册的人",
+    "df_note": "[CMD:df_note <一句话事实>]  把用户告诉你的「固定队员档案」类信息持久化（如\"风格一也玩医疗位 20005\"、\"王十十十十十寸 主玩露娜\"）。**自由文本** notes 重启会保留并注入 system prompt。**用户提到角色分工 / 多干员习惯 / 个人偏好时必须调用这个工具记下来**，不要光嘴上说\"已记录\"。例：[CMD:df_note 风格一是医疗+信息双修，最常用 20005 和 40011]",
+    "df_notes": "[CMD:df_notes]  列出所有已记录的队员档案笔记",
+    "df_clear_notes": "[CMD:df_clear_notes <序号>]  按序号删某条笔记。先调 df_notes 看序号",
 }
 
 
@@ -263,6 +266,67 @@ class DFAbilities:
         ok, msg = self.aliases.unset(nick)
         return msg
 
+    # ---- 队员档案笔记（持久化用户告诉的非结构化事实）----
+
+    NOTES_PATH = "data/df_squad_notes.json"
+
+    @classmethod
+    def _load_notes(cls) -> list[str]:
+        import json
+        from pathlib import Path
+        p = Path(cls.NOTES_PATH)
+        if not p.exists():
+            return []
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return []
+
+    @classmethod
+    def _save_notes(cls, notes: list[str]) -> None:
+        import json
+        from pathlib import Path
+        p = Path(cls.NOTES_PATH)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def df_note(self, args: str) -> str:
+        """把一条自由文本笔记追加进队员档案。重启保留。"""
+        text = args.strip()
+        if not text:
+            return "用法：[CMD:df_note <一句话>]"
+        notes = self._load_notes()
+        # 去重：完全相同的不重复加
+        if text in notes:
+            return f"已存在相同笔记：「{text}」"
+        notes.append(text)
+        self._save_notes(notes)
+        return f"✅ 已记录第 {len(notes)} 条笔记：「{text}」"
+
+    def df_notes(self, args: str) -> str:
+        notes = self._load_notes()
+        if not notes:
+            return "还没有任何队员档案笔记"
+        lines = ["📝 当前队员档案笔记："]
+        for i, n in enumerate(notes, 1):
+            lines.append(f"  {i}. {n}")
+        return "\n".join(lines)
+
+    def df_clear_notes(self, args: str) -> str:
+        idx_str = args.strip()
+        notes = self._load_notes()
+        if not idx_str:
+            return "用法：[CMD:df_clear_notes <序号>]，先用 [CMD:df_notes] 看序号"
+        try:
+            idx = int(idx_str)
+        except ValueError:
+            return f"序号必须是数字，收到「{idx_str}」"
+        if not 1 <= idx <= len(notes):
+            return f"序号 {idx} 超范围（共 {len(notes)} 条）"
+        removed = notes.pop(idx - 1)
+        self._save_notes(notes)
+        return f"✅ 已删除：「{removed}」"
+
     def df_unknowns(self, args: str) -> str:
         """找出最近战绩里"经常一起开黑但没注册 alias 的队友干员 ID"。
 
@@ -441,6 +505,13 @@ class DFAbilities:
 
         known_op_list = "、".join(sorted(OPERATOR_NAMES.values()))
 
+        # 队员档案笔记（用户告知的非结构化事实，持久化）
+        notes = self._load_notes()
+        if notes:
+            notes_block = "\n".join(f"  - {n}" for n in notes)
+        else:
+            notes_block = "  （暂无）"
+
         return f"""你是三角洲行动战术教练。任务是帮玩家分析数据、找规律、给可执行的提升建议——不评判、不嘲讽。
 简洁中文回答（一般 80 字以内，数据/列表除外），语气温和、专业、有建设性。
 
@@ -448,6 +519,13 @@ class DFAbilities:
 ║  当前已注册的群友别名（必须先看这里！）  ║
 ╚══════════════════════════════════════════╝
 {alias_block}
+
+╔══════════════════════════════════════════╗
+║  队员档案笔记（用户告知的事实，持久化）  ║
+╚══════════════════════════════════════════╝
+{notes_block}
+
+⚠️ 当用户告诉你「队员的角色分工 / 多干员习惯 / 个人偏好」（例如"风格一也玩医疗位"、"王十十十十十寸 主玩露娜"），**必须立即调 [CMD:df_note <内容>] 持久化**，不要光在回复里说"已记录"——重启就忘了。
 
 【硬性规则：看到名字时的判断顺序】
 当群友消息里出现一个名字（人名/外号/干员名都算），按下面顺序判断它的身份：

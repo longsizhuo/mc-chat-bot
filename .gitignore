@@ -17,6 +17,8 @@ data/.roast_state.json
 data/chat_log.json
 data/today_mood.json
 data/df_aliases.json
+data/df_squad_notes.json
+data/df_extra_ops.json
 
 # refactor 备份目录（验证稳定后可删）
 mcbot.backup.*/
