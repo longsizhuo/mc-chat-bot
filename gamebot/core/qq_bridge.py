@@ -1,6 +1,7 @@
 """QQ group bridge via OneBot 11 WebSocket + HTTP API."""
 
 import json
+import re
 import socket
 import hashlib
 import base64
@@ -10,6 +11,10 @@ import time
 from typing import Callable, Optional
 from urllib.request import Request, urlopen
 from urllib.error import URLError
+
+
+# [CQ:at,qq=XXX] 标签匹配，提取 QQ 号
+_CQ_AT_PATTERN = re.compile(r"\[CQ:at,qq=(\d+)(?:,name=([^\]]+))?\]")
 
 
 class QQBridge:
@@ -67,6 +72,48 @@ class QQBridge:
                     print(f"[QQ] Send error to {group_id}: {result}")
         except (URLError, OSError, json.JSONDecodeError) as e:
             print(f"[QQ] Send failed to {group_id}: {e}")
+
+    def get_group_member_name(self, group_id: int, user_id: int) -> Optional[str]:
+        """查群成员的群名片或昵称（OneBot /get_group_member_info）。
+
+        优先返回 card（群名片），其次 nickname。查不到返回 None。
+        """
+        try:
+            data = json.dumps({"group_id": group_id, "user_id": user_id}).encode()
+            req = Request(
+                f"{self.api_url}/get_group_member_info",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urlopen(req, timeout=3) as resp:
+                result = json.loads(resp.read())
+            if result.get("retcode") != 0:
+                return None
+            info = result.get("data") or {}
+            return info.get("card") or info.get("nickname") or None
+        except (URLError, OSError, json.JSONDecodeError):
+            return None
+
+    def resolve_at_mentions(self, group_id: int, raw_message: str) -> tuple[str, list[int]]:
+        """把 [CQ:at,qq=XXX] 替换成 @<群名片>，返回 (clean_text, at_qq_list)。
+
+        - 自己的 at（[CQ:at,qq=<bot_self_id>]）会被剥掉，因为 bot 调用者已经知道
+        - 其他 [CQ:xxx] 标签（图片/表情等）一律剥掉
+        - 返回的 at_qq_list 用于上层做"被 @ 的群友是谁"的精确匹配
+        """
+        at_qq_list: list[int] = []
+
+        def _replace_at(m: re.Match) -> str:
+            qq = int(m.group(1))
+            at_qq_list.append(qq)
+            name = self.get_group_member_name(group_id, qq)
+            return f"@{name}" if name else f"@<QQ:{qq}>"
+
+        text = _CQ_AT_PATTERN.sub(_replace_at, raw_message)
+        # 剥剩余的 CQ 标签（图片/表情/回复等）
+        text = re.sub(r"\[CQ:[^\]]+\]", "", text).strip()
+        return text, at_qq_list
 
     def forward_mc_event(self, event_type: str, message: str):
         """Forward an MC event to QQ group with formatting."""

@@ -130,20 +130,31 @@ class DFStatsBridge:
         except Exception as e:
             return f"❌ 拉密码失败：{type(e).__name__}: {e}"
 
-    def reply(self, source_group_id: int, source_nickname: str, message: str) -> bool:
+    def reply(
+        self,
+        source_group_id: int,
+        source_nickname: str,
+        message: str,
+        at_qq_list: Optional[list[int]] = None,
+    ) -> bool:
         """处理一条群消息：
 
         1. 不归我管的群直接返回 False
-        2. 优先尝试别名学习（"我玩牧羊人"等）
+        2. 优先尝试别名学习（"我玩牧羊人" / "更正—@老王 为 麦小雯"）
         3. 然后尝试关键词查询（"今日密码"等）
         4. 都没命中且配置了 AI → 走 LLM converse 循环（带 df 工具）
         命中任何一种返回 True；都不命中返回 False
+
+        at_qq_list: 该消息 @ 了哪些 QQ 号（CQ:at 解析出的列表）。
+                    用于"更正—@某人 为 牧羊人"这种带 @ 引用的别名设置。
         """
         if not self.enabled or source_group_id != self.group_id:
             return False
 
         # 1. 别名学习（regex 简单识别）
-        alias_reply = self.aliases.try_parse(source_nickname, message)
+        alias_reply = self.aliases.try_parse(
+            source_nickname, message, at_qq_list=at_qq_list
+        )
         if alias_reply:
             if self.send_to_group:
                 self.send_to_group(source_group_id, alias_reply)

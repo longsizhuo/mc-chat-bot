@@ -104,11 +104,40 @@ OPERATOR_NAMES: dict[int, str] = {
     30010: "深蓝",
     40005: "露娜",
     40010: "骇爪",
-    # 新赛季干员（抓包反推）
-    40011: "银翼",  # 侦察类，2026 春季新干员
-    # 待识别：10011, 10012, 20005, 30011+, 40012
+    # 新赛季干员（抓包反推 + 用户确认）
+    10012: "疾风",  # 突击类，2025-07-03 S5 赛季"破壁"新干员（克莱尔·拜尔斯）
+    40011: "银翼",  # 侦察类，2025-11 阿萨拉赛季新干员
+    # 待识别：10011, 20005, 30011+, 40012
     # 命名规律：前两位 = 阵营/类型（10x=突击, 20x=支援, 30x=工程, 40x=侦察）
 }
+
+
+def _load_extras():
+    """从 data/df_extra_ops.json 合并动态注册的干员（bot 通过 df_register_op 写入）。
+
+    硬编码的 OPERATOR_NAMES 是"权威基线"，extras 是 bot 在运行时学习到的新干员。
+    硬编码优先，extras 只填补缺失的 ID。这样保证名字冲突时不会被覆盖。
+    """
+    try:
+        from pathlib import Path
+        import json
+        # 注意：运行时 cwd 通常是 mc-chat-bot 根目录
+        extras_path = Path("data/df_extra_ops.json")
+        if not extras_path.exists():
+            return
+        extras = json.loads(extras_path.read_text(encoding="utf-8"))
+        for k, v in extras.items():
+            try:
+                op_id = int(k)
+            except ValueError:
+                continue
+            # 不覆盖硬编码
+            OPERATOR_NAMES.setdefault(op_id, str(v))
+    except Exception as e:
+        print(f"[OperatorMap] 加载 extras 失败：{e}")
+
+
+_load_extras()
 
 
 def map_name(map_id: str | int) -> str:

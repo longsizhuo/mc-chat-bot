@@ -523,15 +523,27 @@ class ChatBot:
 
         - 三角洲群：只走 DF 桥接（关键词 + 别名学习），不走 AI 不转发到 MC
         - MC 主群：原有逻辑（投票、AI、转发到游戏内）
+
+        预处理：把 [CQ:at,qq=XXX] 解析成 @群名片（含 bot 自己的 at 会一起替换），
+        让 AI 看到的是带主语的完整人话，不是被剥光后的破碎片段。
         """
-        import re
-        clean_msg = re.sub(r"\[CQ:[^\]]+\]", "", message).strip()
+        if self.qq:
+            clean_msg, at_qq_list = self.qq.resolve_at_mentions(group_id, message)
+            # bot 自己的 at 在 AI 看来不必要，做二次替换去掉
+            try:
+                self_id = self.qq.self_id  # 可能不存在
+            except AttributeError:
+                self_id = 0
+        else:
+            import re
+            clean_msg = re.sub(r"\[CQ:[^\]]+\]", "", message).strip()
+            at_qq_list = []
         if not clean_msg:
             return
 
         # 三角洲群：严格隔离，只走 DF 处理；不走 AI / 不转发到游戏
         if self.df_stats and group_id == self.df_stats.group_id:
-            self.df_stats.reply(group_id, nickname, clean_msg)
+            self.df_stats.reply(group_id, nickname, clean_msg, at_qq_list=at_qq_list)
             return
 
         # MC 主群以下是原有逻辑

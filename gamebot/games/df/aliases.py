@@ -47,6 +47,12 @@ class DFAliases:
     PATTERN_SELF_REV = re.compile(r"^\s*(.+?)是我\s*$")
     # 4. 解除：取消别名 / unalias
     PATTERN_UNALIAS = re.compile(r"^\s*(?:取消别名|unalias)\s*$", re.IGNORECASE)
+    # 5. @人 改/为 XX：消息里含 @某人 + "为/改为/是 干员名"。例：
+    #    "@老王 为 牧羊人" / "更正—@老王 为 麦小雯" / "@老王 改成 骇爪"
+    #    依赖上层先把 [CQ:at,qq=XXX] 替换成 @<群名片>
+    PATTERN_AT_ASSIGN = re.compile(
+        r"@(\S+?)\s*(?:为|是|改为|改成|=)\s*(\S+)"
+    )
 
     def __init__(self, store_path: str | Path):
         self.store_path = Path(store_path)
@@ -147,11 +153,17 @@ class DFAliases:
 
     # ---- 句式解析 ----
 
-    def try_parse(self, source_nickname: str, message: str) -> Optional[str]:
+    def try_parse(
+        self,
+        source_nickname: str,
+        message: str,
+        at_qq_list: Optional[list[int]] = None,
+    ) -> Optional[str]:
         """从群消息里识别学习/注销指令。
 
         识别成功返回反馈文案；未命中返回 None。
         source_nickname: 谁发的这条消息（用作别名）
+        at_qq_list: 该消息 @ 了哪些 QQ（暂未直接用，预留给未来按 QQ 号去重）
         """
         m = self.PATTERN_ALIAS.match(message)
         if m:
@@ -162,6 +174,13 @@ class DFAliases:
         m = self.PATTERN_UNALIAS.match(message)
         if m:
             ok, msg = self.unset(source_nickname)
+            return msg
+
+        # "@老王 为/是/改为 牧羊人" / "更正—@老王 为 麦小雯"
+        m = self.PATTERN_AT_ASSIGN.search(message)
+        if m:
+            target_nick, op_str = m.group(1), m.group(2)
+            ok, msg = self.set(target_nick, op_str)
             return msg
 
         m = self.PATTERN_SELF.match(message) or self.PATTERN_SELF_REV.match(message)

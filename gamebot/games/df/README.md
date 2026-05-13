@@ -15,9 +15,24 @@
 
 | 文件 | 职责 |
 |---|---|
-| `bridge.py` | `DFStatsBridge` —— 路由群消息、定时广播、关键词识别、AI converse 循环 |
-| `abilities.py` | `DFAbilities` —— LLM 工具集（`df_secret` / `df_recent` / `df_summary` / `df_advice` / `df_match` / `df_aliases` / `df_profile` / `df_help`），含 system prompt 生成 |
-| `aliases.py` | `DFAliases` —— 群友昵称 ↔ 干员 ID 映射，含模糊匹配 |
+| `bridge.py` | `DFStatsBridge` —— 路由群消息、定时广播、关键词识别、AI converse 循环。`reply()` 接收 `at_qq_list` 处理 @ 引用 |
+| `abilities.py` | `DFAbilities` —— LLM 工具集，含 system prompt 生成（**教练人设**：温和、专业、不嘲讽）|
+| `aliases.py` | `DFAliases` —— 群友昵称 ↔ 干员 ID 映射，含模糊匹配 + "@XX 为 YY" 句式解析 |
+
+## AI 工具列表
+
+| 工具 | 用途 |
+|---|---|
+| `df_secret` | 今日 5 张图密码 |
+| `df_recent N` | 最近 N 局战绩列表 |
+| `df_summary P` | P 页汇总（撤离率/收益/常用图/常用干员）|
+| `df_advice` | 全部历史驱动的战术建议 |
+| `df_match N` | 单局战报（含队友+别名）|
+| `df_aliases` | 当前别名表 |
+| `df_profile` | 角色卡 + 生涯总数据 |
+| `df_help` | 帮助指南 |
+| `df_lookup <ID或名>` | 查干员对照（本地→ luoy-oss 远程社区表）。**关键**：bot 遇到不认识的干员时主动调用 |
+| `df_register_op <ID> <名>` | 把新干员写入本地（持久化到 `data/df_extra_ops.json`，下次启动自动加载）|
 
 ## 配置（`config.yml`）
 

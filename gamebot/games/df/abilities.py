@@ -28,6 +28,8 @@ TOOL_DESCRIPTIONS = {
     "df_aliases": "[CMD:df_aliases]  当前群友的干员别名表",
     "df_profile": "[CMD:df_profile]  你（主玩家）的角色卡 + 生涯总数据",
     "df_help":    "[CMD:df_help]  群里有人问\"怎么用/帮助/介绍\"时调用",
+    "df_lookup":  "[CMD:df_lookup <ID或干员名>]  查干员对照（先查本地表，再查 luoy-oss 社区维护的远程映射）。遇到不认识的干员或 5 位数 ID 时调用",
+    "df_register_op": "[CMD:df_register_op <ID> <中文名>]  把 lookup 查到的新干员加进本地表（持久化）。例：[CMD:df_register_op 10012 疾风]。慎用，会写入磁盘",
 }
 
 
@@ -153,6 +155,95 @@ class DFAbilities:
         """使用指南，AI 看到"怎么用/帮助/介绍"时调。"""
         return HELP_TEXT
 
+    def df_lookup(self, args: str) -> str:
+        """查干员对照表：先查本地 OPERATOR_NAMES，再查 luoy-oss 社区维护的 raw JSON。
+
+        参数可以是 ArmedForceId（5位数）或干员中文名。
+        """
+        import json
+        import urllib.request
+        import urllib.error
+        from df_stats.maps import OPERATOR_NAMES
+
+        q = args.strip()
+        if not q:
+            return "用法：[CMD:df_lookup <ID 或 中文名>]"
+
+        # 1. 本地表
+        if q.isdigit():
+            op_id = int(q)
+            if op_id in OPERATOR_NAMES:
+                return f"✅ 本地表：{op_id} = {OPERATOR_NAMES[op_id]}"
+        else:
+            for op_id, name in OPERATOR_NAMES.items():
+                if name == q:
+                    return f"✅ 本地表：{q} = ID {op_id}"
+
+        # 2. luoy-oss 远程社区表
+        url = "https://raw.githubusercontent.com/luoy-oss/deltaforce_id/main/characters_name_map.json"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:
+                remote = json.loads(resp.read())
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+            return f"❌ 本地表无「{q}」+ 社区表拉取失败：{e}"
+
+        if q.isdigit():
+            name = remote.get(q)
+            if name:
+                return (
+                    f"🌐 luoy-oss 社区表：{q} = {name}（本地表暂时没收录）\n"
+                    f"如果确认正确，可以调 [CMD:df_register_op {q} {name}] 写入本地"
+                )
+        else:
+            for op_id, name in remote.items():
+                if name == q:
+                    return (
+                        f"🌐 luoy-oss 社区表：{q} = ID {op_id}（本地表暂时没收录）\n"
+                        f"如果确认正确，可以调 [CMD:df_register_op {op_id} {q}] 写入本地"
+                    )
+
+        return (
+            f"❌ 本地表和社区表都没找到「{q}」。\n"
+            f"如果是非常新的干员（赛季刚出），社区表可能还没更新——可以让群友直接发干员 ID 注册。\n"
+            f"现在已知干员：{', '.join(sorted(OPERATOR_NAMES.values()))}"
+        )
+
+    def df_register_op(self, args: str) -> str:
+        """把新干员对照写入本地表（持久化到 data/df_extra_ops.json，启动时自动 merge）。
+
+        用法：df_register_op <ID> <中文名>
+        例：df_register_op 10012 疾风
+        """
+        import json
+        from pathlib import Path
+        from df_stats.maps import OPERATOR_NAMES
+
+        parts = args.strip().split(maxsplit=1)
+        if len(parts) != 2 or not parts[0].isdigit():
+            return "用法：[CMD:df_register_op <5位数ID> <中文名>]，例：df_register_op 10012 疾风"
+
+        op_id = int(parts[0])
+        op_name = parts[1].strip()
+
+        # 进程内立即生效
+        OPERATOR_NAMES[op_id] = op_name
+
+        # 持久化到 extras（重启后会被加载，原 maps.py 的硬编码作为兜底）
+        extras_path = Path("data/df_extra_ops.json")
+        extras_path.parent.mkdir(parents=True, exist_ok=True)
+        extras: dict[str, str] = {}
+        if extras_path.exists():
+            try:
+                extras = json.loads(extras_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                extras = {}
+        extras[str(op_id)] = op_name
+        extras_path.write_text(
+            json.dumps(extras, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        return f"✅ 已记录：{op_id} = {op_name}（写入 data/df_extra_ops.json，重启后自动加载）"
+
     # ---- 入口：根据工具名分发 ----
 
     def execute(self, name: str, args: str) -> str:
@@ -204,15 +295,24 @@ class DFAbilities:
         else:
             alias_block = "还没有任何人注册干员别名（不能猜测群友身份）"
 
-        return f"""你是三角洲行动战术分析师，群里讨论三角洲行动。简洁中文回答（一般 80 字以内，数据/列表除外），可以毒舌。
+        return f"""你是三角洲行动战术教练。你的任务是帮玩家分析数据、找规律、给出可执行的提升建议——不是评判、嘲讽、或贴标签。
+简洁中文回答（一般 80 字以内，数据/列表除外），语气温和、专业、有建设性。
+
+【教练心态】
+- 数据看起来"差"的局面：帮玩家定位原因 + 给具体改进方向。**不要说**"别头铁/真菜/亏麻了/这都行"这种带情绪的话
+- 数据看起来"好"的局面：肯定结果 + 指出可复用的成功模式
+- 给建议时引用具体数字让结论站得住。例：不说"少打机密图"，说"机密图占比 X%、场均 -Y 万，可以先用常规图找节奏"
+- 用"你"或别名昵称称呼玩家，不要用"老兄/兄弟/家人们"等社交腔
+- 不要用"加油"/"好的请稍等"/"我帮你看看"等无意义客套
+- 玩家心态低落时多用"你已经做到了 X，下一步可以试试 Y"的递进结构
 
 【你能调的工具】（在回复里加 [CMD:xxx] 标签，bot 会执行并把结果喂回来给你，你用人话总结）：
 {tool_list}
 
 【最重要的纪律】
 1. 涉及战绩/收益/胜率/密码/任何数字 → 必须调工具拿真实数据，绝对不要凭印象瞎编
-2. 群友说的干员名字（"老王/老张"等）→ **必须查别名表**，下面没列的人就老老实实说"我还不认识 X，让 X 自己发一句'我玩XX'注册一下"
-3. 战绩里看到的"干员#XXXXX"如果不在别名表里 → 直接称呼 "陌生队友"，**绝对不要硬套到群友头上**
+2. 群友说的干员名字（"老王/老张"等）→ **必须查别名表**，下面没列的人就告诉对方"我还不认识 X，TA 可以发一句'我玩XX'让我记下"
+3. 战绩里看到的"干员#XXXXX"如果不在别名表里 → 直接称呼"陌生队友"，**绝对不要硬套到群友头上**
 4. 工具失败（缺 cookie 等）→ 如实告诉群友"X 数据暂时拿不到"，不要重试
 
 【触发示例】
@@ -221,6 +321,12 @@ class DFAbilities:
 - "推荐打哪张图/给点建议" → [CMD:df_advice]
 - "老王/某人打得咋样" → 先确认这人在别名表 → 调 [CMD:df_match]
 - "怎么用/帮助" → 自己解释下功能（不用调工具）
+
+【遇到不认识的干员怎么办】
+- 别名学习失败时（消息说"我玩 XX"但 XX 不在表里）→ 先调 [CMD:df_lookup XX] 查社区表
+- 战绩里看到陌生 5 位数 ID（如 20005）→ 调 [CMD:df_lookup 20005]
+- 如果 lookup 找到了，告诉群友"我刚学到这是 XX，已记录"，并调 [CMD:df_register_op <ID> <名字>] 持久化
+- 如果 lookup 都没查到 → 说明是新赛季干员，告诉群友先用 ID 注册（"alias 你 12345"），等社区表更新
 
 【主玩家（cookie 来源）】
 龙龙要打翻你们，主玩威龙（10010）。所有"我的战绩"都指他。
