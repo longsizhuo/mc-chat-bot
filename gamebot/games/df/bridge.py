@@ -20,6 +20,13 @@ from .abilities import DFAbilities
 CMD_PATTERN = re.compile(r"\[CMD:(df_\w+)\s*(.*?)\]")
 MAX_TOOL_ROUNDS = 4   # AI 工具调用最大轮次（防死循环）
 
+# AI 容易出"光承诺不调用"的回复（如"我调一下"、"稍等让我查查"）。
+# 命中这些 pattern + 没真 [CMD:...] 时，给它一次重试机会强制调工具。
+_INTENT_TO_CALL_TOOL = re.compile(
+    r"(我[来去]?(?:查|调|看|拉)|稍等|让我(?:查|看|调)|我帮你看|马上(?:查|看))",
+    re.IGNORECASE,
+)
+
 
 CST = timezone(timedelta(hours=8))
 
@@ -182,15 +189,17 @@ class DFStatsBridge:
     def converse(self, nickname: str, message: str) -> str:
         """让 LLM 处理一条消息，期间可以调 [CMD:df_xxx] 工具。
 
-        参考 bot.converse 的循环模式，但更简单：
-        - 共享历史（群级，非 per-user）
-        - 工具不走 RCON，直接调 DFAbilities.execute
-        - 最多 MAX_TOOL_ROUNDS 轮，防死循环
+        每一步打详细日志，**不让 LLM 失败静默化**——卡住的话能直接从
+        journalctl 看到卡在哪个 round / tool 上。
         """
         if not self.ai_provider:
+            print(f"[DFStats] ai_provider 未配置，跳过 AI 处理")
             return ""
 
-        # 把用户消息塞进历史
+        import time as _time
+        t_start = _time.time()
+        print(f"[DFStats] converse start | nickname={nickname!r} | msg={message[:60]!r}")
+
         self._history.append({
             "role": "user",
             "content": f"[{nickname}]: {message}",
@@ -201,8 +210,10 @@ class DFStatsBridge:
         visible_parts: list[str] = []
 
         for round_idx in range(MAX_TOOL_ROUNDS):
+            print(f"[DFStats] round {round_idx+1}/{MAX_TOOL_ROUNDS} | history={len(self._history)} msgs")
             reply = self.ai_provider.chat(self._history, system_prompt)
             if reply is None:
+                print(f"[DFStats] round {round_idx+1} AI 返回 None，循环终止")
                 break
 
             self._history.append({"role": "assistant", "content": reply})
@@ -211,18 +222,32 @@ class DFStatsBridge:
             visible = CMD_PATTERN.sub("", reply).strip()
             if visible:
                 visible_parts.append(visible)
+                print(f"[DFStats] round {round_idx+1} visible={len(visible)} chars, cmds={len(commands)}")
+            else:
+                print(f"[DFStats] round {round_idx+1} no visible text, cmds={len(commands)}")
 
             if not commands:
+                # 检测"光承诺不调用"：AI 说"我去查"但没真带 [CMD:...] —— push 它真调
+                if visible and _INTENT_TO_CALL_TOOL.search(visible) and round_idx < MAX_TOOL_ROUNDS - 1:
+                    print(f"[DFStats] round {round_idx+1} 检测到承诺无调用，push AI 真调工具")
+                    self._history.append({
+                        "role": "user",
+                        "content": "[system] 你刚说要查/调工具，但没在回复里加 [CMD:xxx] 标签。bot 看不到 CMD 就不会执行任何工具。请直接在下一条回复里写 [CMD:xxx]（同一条消息里），不要再光说不调。",
+                    })
+                    # 移除刚才的承诺式回复，避免让群友看到没用的"我调一下"
+                    visible_parts.pop()
+                    continue
                 break
 
-            # 执行工具，把结果作为 user 消息喂回（让 AI 下一轮看到）
             results = []
             for tool_name, tool_args in commands:
                 tool_name = tool_name.strip()
                 tool_args = tool_args.strip()
+                t_tool = _time.time()
                 print(f"[DFStats] tool call: {tool_name} {tool_args!r}")
                 result = self.abilities.execute(tool_name, tool_args)
-                # 工具结果可能很长（如 advice 几百字），截断防止上下文炸
+                tool_elapsed = _time.time() - t_tool
+                print(f"[DFStats]   ✓ {tool_name} done in {tool_elapsed:.1f}s, result={len(result)} chars")
                 if len(result) > 2000:
                     result = result[:2000] + "\n...(截断)"
                 results.append(f"[{tool_name} 结果]\n{result}")
@@ -233,12 +258,21 @@ class DFStatsBridge:
                 "content": f"[tool_results]\n{tool_msg}",
             })
 
-            # 最后一轮也走完了还在调工具？把结果摘要带回
             if round_idx == MAX_TOOL_ROUNDS - 1:
                 visible_parts.append(f"（工具调用次数已达上限）")
+                print(f"[DFStats] 达到 MAX_TOOL_ROUNDS={MAX_TOOL_ROUNDS}，停止")
 
         self._trim_history()
-        return "\n\n".join(p for p in visible_parts if p).strip() or "..."
+        final = "\n\n".join(p for p in visible_parts if p).strip()
+        total_elapsed = _time.time() - t_start
+        print(
+            f"[DFStats] converse done in {total_elapsed:.1f}s, "
+            f"final reply {len(final)} chars"
+        )
+        if not final:
+            # 不让"..."这种空回复静默掉，明确告诉群友 AI 挂了
+            return "（AI 暂时没回，请稍后再试或看服务器日志）"
+        return final
 
     def _trim_history(self):
         """保留最近 N 条历史，防止上下文无限增长。"""
