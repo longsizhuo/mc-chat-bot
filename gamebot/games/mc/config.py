@@ -69,11 +69,13 @@ class DFStatsConfig:
     record_curl: str = "scripts/df_stats/credentials/raw_curl.sh"
     profile_curl: str = "scripts/df_stats/credentials/raw_curl_profile.sh"
     season_curl: str = "scripts/df_stats/credentials/raw_curl_season.sh"
-    # 干员别名表存储路径
+    # 干员别名表（2026-05 已迁移到 GameMemory，此字段保留供向后兼容；新代码看 memory_root）
     aliases_path: str = "data/df_aliases.json"
+    # Agent memory 根目录（fact_store + episode_log）
+    memory_root: str = "data/memory/df"
     # 每天几点广播今日密码（CST，0-23）
     broadcast_hour: int = 6
-    # 是否启用 AI 闲聊 + 工具调用（关键词/别名命中时不走 AI；都不命中且 enable_ai=true 才走）
+    # 是否启用 AI 闲聊 + 工具调用
     enable_ai: bool = True
 
 
@@ -175,6 +177,7 @@ def load_config(path: str) -> Config:
         profile_curl=dfs.get("profile_curl", "scripts/df_stats/credentials/raw_curl_profile.sh"),
         season_curl=dfs.get("season_curl", "scripts/df_stats/credentials/raw_curl_season.sh"),
         aliases_path=dfs.get("aliases_path", "data/df_aliases.json"),
+        memory_root=dfs.get("memory_root", "data/memory/df"),
         broadcast_hour=dfs.get("broadcast_hour", 6),
         enable_ai=dfs.get("enable_ai", True),
     )

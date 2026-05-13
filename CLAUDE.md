@@ -10,14 +10,19 @@ mc-chat-bot/
 ├── config.yml                 ← 配置（不入库）
 ├── config.example.yml         ← 配置模板
 ├── gamebot/
-│   ├── core/                  ← 平台无关：AI provider、QQ bridge
+│   ├── core/                  ← 平台无关
+│   │   ├── ai_provider.py     LLM 客户端
+│   │   ├── qq_bridge.py       OneBot 11
+│   │   └── memory/            ⭐ 通用 agent memory（SPO 三元组 + 事件流 + 智能检索）
 │   └── games/
 │       ├── mc/                ← Minecraft bot 主体（原 mcbot/）
 │       └── df/                ← 三角洲行动桥接
 ├── scripts/
 │   └── df_stats/              ← 三角洲数据获取库（独立 CLI 工具）
 ├── data/                      ← 运行时状态（不入库）
-└── README.md / CHANGELOG.md / AGENTS.md
+│   ├── memory/<game>/         ← agent memory 存储
+│   └── df_*.json              ← 旧 DF 存储（已迁移到 memory，文件保留备份）
+└── README.md / CHANGELOG.md / AGENTS.md / TODO.md
 ```
 
 ## 改代码时的硬性约束
@@ -34,6 +39,27 @@ mc-chat-bot/
 | 加新游戏模块 | `gamebot/games/<new>/README.md` + 根 `README.md` 提一句 + `gamebot/games/README.md` 列表 |
 | 改公共/对外行为 | 根 `README.md` 对应章节 |
 | 大改动（重构、新功能） | `CHANGELOG.md` 条目 |
+
+### 1.6. Agent Memory（SPO 三元组 + 事件流）
+
+`gamebot/core/memory/` 是通用 agent memory（参考 Hermes Agent + OpenClaw 设计）。
+
+存储模型：
+- **Facts**：Subject-Predicate-Value 三元组（如 `("王博", "alias_to_op", 40005)`）
+- **Episodes**：时序事件流（对话/匹配/变更都 append 一条）
+
+**查询模式**：
+- `memory.recall(subject)` — 关于某主体的所有事实
+- `memory.context_for_message(text)` — 根据消息内容**智能 surface** 相关 facts + episodes，给 system prompt 用（替代 dump-all）
+- 多别名顺藤摸瓜：通过 `canonical_name` / `also_known_as` 关系自动展开（"王老板" → 拉出王博的所有事实）
+
+**改 prompt 时**：把"硬塞整张 alias 表 / notes 表"改成 `{relevant_memory}` 占位符，由 retrieval 按 query 动态填充。
+
+**AI 工具**：
+- `[CMD:df_remember <主体> <谓词> <值>]` — 写入 fact
+- `[CMD:df_recall <主体>]` — 调出关于某主体的全部 facts（含别名链）
+
+旧的零散 JSON（`df_aliases.json` / `df_squad_notes.json` / `df_extra_ops.json`）已迁移到 memory，文件保留作为备份。**新代码不要再读这些文件**，统一走 GameMemory API。
 
 ### 1.5. Prompt 与代码分离原则 ⚠️
 

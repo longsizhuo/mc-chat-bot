@@ -15,6 +15,7 @@ from typing import Callable, Optional
 
 from .aliases import DFAliases
 from .abilities import DFAbilities
+from gamebot.core.memory import GameMemory
 
 
 CMD_PATTERN = re.compile(r"\[CMD:(df_\w+)\s*(.*?)\]")
@@ -67,7 +68,7 @@ class DFStatsBridge:
         secret_curl: str | Path,
         group_id: int,
         send_to_group: Optional[Callable[[int, str], None]],
-        aliases_path: str | Path = "data/df_aliases.json",
+        aliases_path: str | Path = "data/df_aliases.json",  # 保留参数兼容，但内部已不读
         broadcast_hour: int = 6,
         enabled: bool = True,
         # 可选：其他接口的 curl，给 AI 工具调用用
@@ -77,6 +78,8 @@ class DFStatsBridge:
         # 可选：AI provider（如果传了，bot 在 DF 群能聊天 + 调工具）
         ai_provider=None,
         history_max: int = 12,
+        # 新：memory 根目录（fact_store + episode_log）
+        memory_root: str | Path = "data/memory/df",
     ):
         self.secret_curl = Path(secret_curl)
         self.group_id = group_id
@@ -84,11 +87,14 @@ class DFStatsBridge:
         self.broadcast_hour = broadcast_hour
         self.enabled = enabled
         self._last_broadcast_date: Optional[str] = None
-        # 干员别名表
-        self.aliases = DFAliases(aliases_path)
+        # 通用 agent memory（fact 三元组 + 事件流）
+        self.memory = GameMemory(root=memory_root)
+        # 干员别名管理器（包装 memory）
+        self.aliases = DFAliases(self.memory)
         # AI 工具集
         self.abilities = DFAbilities(
             aliases=self.aliases,
+            memory=self.memory,
             secret_curl=secret_curl,
             record_curl=record_curl,
             profile_curl=profile_curl,
@@ -206,8 +212,15 @@ class DFStatsBridge:
         })
         self._trim_history()
 
-        system_prompt = self.abilities.build_system_prompt(self.group_id)
+        # 把当前消息传给 prompt builder 做智能 memory 检索
+        system_prompt = self.abilities.build_system_prompt(self.group_id, user_message=message)
         visible_parts: list[str] = []
+        # 同时把这条用户消息记为 episode（便于回顾"谁问过什么"）
+        self.memory.add_episode(
+            type="conversation",
+            content=f"{nickname}: {message[:100]}",
+            actors=[nickname],
+        )
 
         for round_idx in range(MAX_TOOL_ROUNDS):
             print(f"[DFStats] round {round_idx+1}/{MAX_TOOL_ROUNDS} | history={len(self._history)} msgs")

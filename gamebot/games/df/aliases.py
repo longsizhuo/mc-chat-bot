@@ -1,29 +1,29 @@
-"""干员别名映射 —— 把 ArmedForceId 映射成群友昵称。
+"""DFAliases —— 干员别名管理。
 
-存储：data/df_aliases.json
-格式：{"<nickname>": <ArmedForceId>, ...}
-     注：一个干员只能挂一个群友，反之亦然（DF 同队不能选同干员，所以不冲突）
+2026-05-13 重构：底层从独立 JSON 文件改成 gamebot.core.memory.GameMemory，
+但保持外部 API 不变（bridge / abilities 不用改）。
 
-群里发以下任意句式 bot 自动学习：
-  - "我玩牧羊人"
-  - "牧羊人是我"
-  - "alias 老王 牧羊人"
-  - "/df alias 老王 30008"
+存储模型（在 memory.facts）：
+    Fact(subject=<昵称>, predicate="alias_to_op", value=<干员ID>)
+    + 可选 canonical_name / also_known_as 描述多重昵称关系
+
+句式解析（"我玩牧羊人" / "@老王 为 牧羊人" 等）逻辑保留。
 """
 
 from __future__ import annotations
 
 import difflib
-import json
 import re
-import threading
+import sys
 from pathlib import Path
 from typing import Optional
 
-import sys
+# 让 df_stats 库可导入
 _DF_STATS_DIR = Path(__file__).resolve().parents[3] / "scripts" / "df_stats"
 if str(_DF_STATS_DIR) not in sys.path:
     sys.path.insert(0, str(_DF_STATS_DIR))
+
+from gamebot.core.memory import GameMemory
 
 
 def _load_operator_table() -> dict[str, int]:
@@ -36,90 +36,79 @@ def _load_operator_table() -> dict[str, int]:
 
 
 class DFAliases:
-    """干员别名管理器。"""
+    """干员别名管理器（memory backend 版）。
 
-    # 学习句式正则。命中后从分组里抠出昵称和干员名/ID
-    # 1. "alias 老王 牧羊人" / "alias 老王 30008"
+    所有数据都存在 GameMemory.facts 里，predicate="alias_to_op"。
+    """
+
+    # 学习句式正则（跟旧版保持一致，方便 bridge.reply 兼容）
     PATTERN_ALIAS = re.compile(r"^\s*alias\s+(\S+)\s+(\S+)\s*$", re.IGNORECASE)
-    # 2. "我玩XX" / "我是XX" / "我打XX"
     PATTERN_SELF = re.compile(r"^\s*我(?:玩|是|打|用|主)(.+?)\s*$")
-    # 3. "XX是我"
     PATTERN_SELF_REV = re.compile(r"^\s*(.+?)是我\s*$")
-    # 4. 解除：取消别名 / unalias
     PATTERN_UNALIAS = re.compile(r"^\s*(?:取消别名|unalias)\s*$", re.IGNORECASE)
-    # 5. @人 改/为 XX：消息里含 @某人 + "为/改为/是 干员名"。例：
-    #    "@老王 为 牧羊人" / "更正—@老王 为 麦小雯" / "@老王 改成 骇爪"
-    #    依赖上层先把 [CQ:at,qq=XXX] 替换成 @<群名片>
-    PATTERN_AT_ASSIGN = re.compile(
-        r"@(\S+?)\s*(?:为|是|改为|改成|=)\s*(\S+)"
-    )
+    PATTERN_AT_ASSIGN = re.compile(r"@(\S+?)\s*(?:为|是|改为|改成|=)\s*(\S+)")
 
-    def __init__(self, store_path: str | Path):
-        self.store_path = Path(store_path)
-        self._lock = threading.Lock()
-        self._aliases: dict[str, int] = {}  # nickname → ArmedForceId
+    def __init__(self, memory: GameMemory):
+        self.memory = memory
         self._op_name_to_id = _load_operator_table()
-        self._load()
 
-    def _load(self):
-        if not self.store_path.exists():
-            return
-        try:
-            data = json.loads(self.store_path.read_text(encoding="utf-8"))
-            self._aliases = {k: int(v) for k, v in data.items()}
-        except (json.JSONDecodeError, OSError, ValueError) as e:
-            print(f"[DFAliases] 加载失败，从空开始：{e}")
-            self._aliases = {}
-
-    def _save(self):
-        self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        self.store_path.write_text(
-            json.dumps(self._aliases, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-    # ---- 查询 ----
-
-    def lookup_by_op_id(self, op_id: int) -> Optional[str]:
-        """ArmedForceId → 群友昵称。"""
-        with self._lock:
-            for nick, oid in self._aliases.items():
-                if oid == op_id:
-                    return nick
-        return None
-
-    def lookup_by_nick(self, nickname: str) -> Optional[int]:
-        """群友昵称 → ArmedForceId。"""
-        with self._lock:
-            return self._aliases.get(nickname)
+    # ============ 跟旧版兼容的查询 API ============
 
     def all(self) -> dict[str, int]:
-        with self._lock:
-            return dict(self._aliases)
+        """返回 {昵称: 干员ID} 字典（兼容旧版）。"""
+        result: dict[str, int] = {}
+        for f in self.memory.find_facts(predicate="alias_to_op"):
+            try:
+                result[f.subject] = int(f.value)
+            except (ValueError, TypeError):
+                continue
+        return result
 
-    # ---- 学习 / 注销 ----
+    def lookup_by_nick(self, nickname: str) -> Optional[int]:
+        """昵称 → 干员 ID。"""
+        facts = self.memory.find_facts(subject=nickname, predicate="alias_to_op")
+        if not facts:
+            return None
+        try:
+            return int(facts[0].value)
+        except (ValueError, TypeError):
+            return None
 
-    def set(self, nickname: str, op_id_or_name: str) -> tuple[bool, str]:
-        """记录别名。返回 (是否成功, 反馈文案)。
+    def lookup_by_op_id(self, op_id: int) -> Optional[str]:
+        """干员 ID → 昵称（取第一条）。"""
+        facts = self.memory.find_facts(predicate="alias_to_op", value=op_id)
+        if not facts:
+            return None
+        return facts[0].subject
 
-        模糊匹配：如果"骇爪"打成"害爪"或"牧羊人"打成"牧羊"，自动找最近的干员名。
+    # ============ 增删改 ============
+
+    def set(self, nickname: str, op_id_or_name: str, source: str = "user") -> tuple[bool, str]:
+        """注册/更新别名。返回 (是否成功, 反馈文案)。
+
+        支持：op_id_or_name 是数字 ID / 已知干员名 / 已知昵称（复用其 op_id）
         """
-        op_id: Optional[int] = None
         op_str = op_id_or_name.strip()
+        op_id: Optional[int] = None
 
+        # 1. 数字 ID
         if op_str.isdigit():
             op_id = int(op_str)
+        # 2. 已知干员名
         elif op_str in self._op_name_to_id:
-            # 精确匹配
             op_id = self._op_name_to_id[op_str]
         else:
-            # 模糊匹配：找相似度最高的干员名
-            candidates = list(self._op_name_to_id.keys())
-            close = difflib.get_close_matches(op_str, candidates, n=1, cutoff=0.5)
-            if close:
-                op_id = self._op_name_to_id[close[0]]
-                # 即使匹配到了，反馈里告诉用户实际是哪个
-                op_str = close[0]
+            # 3. 已注册的别名 key？（复用语义）
+            existing = self.lookup_by_nick(op_str)
+            if existing is not None:
+                op_id = existing
+            else:
+                # 4. 模糊匹配干员名（容错打错）
+                candidates = list(self._op_name_to_id.keys())
+                close = difflib.get_close_matches(op_str, candidates, n=1, cutoff=0.5)
+                if close:
+                    op_id = self._op_name_to_id[close[0]]
+                    op_str = close[0]
 
         if op_id is None:
             known = "、".join(sorted(self._op_name_to_id.keys())) or "（干员表为空）"
@@ -129,29 +118,48 @@ class DFAliases:
                 f"如果是新干员，可以直接发 ID（5位数）注册"
             )
 
-        # 一个干员只能挂一个人 —— 如果其他人已经绑了同一干员，先解绑
-        with self._lock:
-            for existing_nick, existing_oid in list(self._aliases.items()):
-                if existing_oid == op_id and existing_nick != nickname:
-                    del self._aliases[existing_nick]
-            self._aliases[nickname] = op_id
-            self._save()
+        # 一个干员只能挂一个人（DF 同队禁同干员）—— 先解绑旧的
+        existing_owners = self.memory.find_facts(predicate="alias_to_op", value=op_id)
+        for f in existing_owners:
+            if f.subject != nickname:
+                self.memory.forget(f.fact_id)
 
-        op_name = next(
-            (n for n, i in self._op_name_to_id.items() if i == op_id),
-            f"干员#{op_id}",
+        # 删除该昵称之前的 alias_to_op（如果有）
+        self.memory.forget_where(subject=nickname, predicate="alias_to_op")
+        # 写新的
+        self.memory.remember(
+            subject=nickname,
+            predicate="alias_to_op",
+            value=op_id,
+            source=source,
         )
+        # 记一笔 episode
+        self.memory.add_episode(
+            type="alias_change",
+            content=f"{nickname} → 干员#{op_id}",
+            actors=[nickname],
+            metadata={"op_id": op_id, "source": source},
+        )
+
+        try:
+            from df_stats.maps import OPERATOR_NAMES
+            op_name = OPERATOR_NAMES.get(op_id, f"干员#{op_id}")
+        except Exception:
+            op_name = f"干员#{op_id}"
         return True, f"✅ 记下了：{nickname} = {op_name}（ID {op_id}）"
 
     def unset(self, nickname: str) -> tuple[bool, str]:
-        with self._lock:
-            if nickname not in self._aliases:
-                return False, f"{nickname} 还没绑过别名"
-            del self._aliases[nickname]
-            self._save()
+        removed = self.memory.forget_where(subject=nickname, predicate="alias_to_op")
+        if removed == 0:
+            return False, f"{nickname} 还没绑过别名"
+        self.memory.add_episode(
+            type="alias_change",
+            content=f"删除 {nickname} 的 alias",
+            actors=[nickname],
+        )
         return True, f"✅ 已解绑：{nickname}"
 
-    # ---- 句式解析 ----
+    # ============ 句式解析（跟旧版完全一致）============
 
     def try_parse(
         self,
@@ -159,16 +167,11 @@ class DFAliases:
         message: str,
         at_qq_list: Optional[list[int]] = None,
     ) -> Optional[str]:
-        """从群消息里识别学习/注销指令。
-
-        识别成功返回反馈文案；未命中返回 None。
-        source_nickname: 谁发的这条消息（用作别名）
-        at_qq_list: 该消息 @ 了哪些 QQ（暂未直接用，预留给未来按 QQ 号去重）
-        """
+        """从群消息里识别学习/注销指令。"""
         m = self.PATTERN_ALIAS.match(message)
         if m:
             target_nick, op_str = m.group(1), m.group(2)
-            ok, msg = self.set(target_nick, op_str)
+            ok, msg = self.set(target_nick, op_str, source=f"user:{source_nickname}")
             return msg
 
         m = self.PATTERN_UNALIAS.match(message)
@@ -176,19 +179,17 @@ class DFAliases:
             ok, msg = self.unset(source_nickname)
             return msg
 
-        # "@老王 为/是/改为 牧羊人" / "更正—@老王 为 麦小雯"
         m = self.PATTERN_AT_ASSIGN.search(message)
         if m:
             target_nick, op_str = m.group(1), m.group(2)
-            ok, msg = self.set(target_nick, op_str)
+            ok, msg = self.set(target_nick, op_str, source=f"user:{source_nickname}")
             return msg
 
         m = self.PATTERN_SELF.match(message) or self.PATTERN_SELF_REV.match(message)
         if m:
             op_str = m.group(1).strip()
-            # 句式简单，避免 "我打牌" 这种误识别 —— 干员名必须在已知表里
             if op_str in self._op_name_to_id or op_str.isdigit():
-                ok, msg = self.set(source_nickname, op_str)
+                ok, msg = self.set(source_nickname, op_str, source=f"user:{source_nickname}")
                 return msg
 
         return None

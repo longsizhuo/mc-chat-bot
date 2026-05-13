@@ -130,6 +130,7 @@ class ChatBot:
                 group_id=config.df_stats.group_id,
                 send_to_group=self.qq.send_to_group if self.qq else None,
                 aliases_path=config.df_stats.aliases_path,
+                memory_root=config.df_stats.memory_root,
                 broadcast_hour=config.df_stats.broadcast_hour,
                 enabled=True,
                 record_curl=config.df_stats.record_curl,

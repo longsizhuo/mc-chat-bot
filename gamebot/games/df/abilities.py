@@ -34,9 +34,9 @@ TOOL_DESCRIPTIONS = {
     "df_rename_alias": "[CMD:df_rename_alias <旧昵称> <新昵称>]  把别名 key 从旧昵称改成新昵称，op_id 保持。例：[CMD:df_rename_alias 王十十十十十寸 老黑]",
     "df_unset_alias": "[CMD:df_unset_alias <昵称>]  删除某个别名",
     "df_unknowns": "[CMD:df_unknowns]  列出最近战绩里**经常一起开黑但还没注册 alias 的队友干员 ID**。bot 可主动调用问\"X 是谁\"，用排除法识别固定队里没注册的人",
-    "df_note": "[CMD:df_note <一句话事实>]  把用户告诉你的「固定队员档案」类信息持久化（如\"风格一也玩医疗位 20005\"、\"王十十十十十寸 主玩露娜\"）。**自由文本** notes 重启会保留并注入 system prompt。**用户提到角色分工 / 多干员习惯 / 个人偏好时必须调用这个工具记下来**，不要光嘴上说\"已记录\"。例：[CMD:df_note 风格一是医疗+信息双修，最常用 20005 和 40011]",
-    "df_notes": "[CMD:df_notes]  列出所有已记录的队员档案笔记",
-    "df_clear_notes": "[CMD:df_clear_notes <序号>]  按序号删某条笔记。先调 df_notes 看序号",
+    "df_remember": "[CMD:df_remember <主体> <谓词> <值>]  **核心 memory 工具**——把关于某人/某物的结构化事实存进 memory。例：[CMD:df_remember 王博 also_known_as 王老板] / [CMD:df_remember 谭力 main_role 医疗+信息位] / [CMD:df_remember 王博 favorite_op 露娜]。用户告知任何角色分工/偏好/真名/别名时必须调用",
+    "df_recall": "[CMD:df_recall <主体>]  调出关于某人的所有 facts（含通过 canonical_name / also_known_as 顺藤摸瓜拉的相关 facts）。例：[CMD:df_recall 王老板] → 自动拉出王博的所有事实",
+    "df_note": "[CMD:df_note <一句话>]  存自由文本笔记到 memory（结构化的请用 df_remember）。系统会尝试自动抽取 subject，抽不出来归到 squad",
 }
 
 
@@ -69,12 +69,14 @@ class DFAbilities:
     def __init__(
         self,
         aliases: DFAliases,
+        memory=None,                                  # GameMemory；不传则从 aliases 拿
         secret_curl: str | Path | None = None,
         record_curl: str | Path | None = None,
         profile_curl: str | Path | None = None,
         season_curl: str | Path | None = None,
     ):
         self.aliases = aliases
+        self.memory = memory if memory is not None else aliases.memory
         self.secret_curl = Path(secret_curl) if secret_curl else None
         self.record_curl = Path(record_curl) if record_curl else None
         self.profile_curl = Path(profile_curl) if profile_curl else None
@@ -266,66 +268,67 @@ class DFAbilities:
         ok, msg = self.aliases.unset(nick)
         return msg
 
-    # ---- 队员档案笔记（持久化用户告诉的非结构化事实）----
+    # ---- Memory 工具（统一存储队员档案 / 角色分工 / 偏好等）----
 
-    NOTES_PATH = "data/df_squad_notes.json"
+    def df_remember(self, args: str) -> str:
+        """结构化 memory：subject + predicate + value。
 
-    @classmethod
-    def _load_notes(cls) -> list[str]:
-        import json
-        from pathlib import Path
-        p = Path(cls.NOTES_PATH)
-        if not p.exists():
-            return []
-        try:
-            return json.loads(p.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return []
+        用法：df_remember <主体> <谓词> <值>
+        例：df_remember 王博 also_known_as 王老板
+        例：df_remember 谭力 main_role 医疗+信息位
+        例：df_remember 王博 favorite_op 露娜
+        """
+        parts = args.strip().split(maxsplit=2)
+        if len(parts) != 3:
+            return (
+                "用法：[CMD:df_remember <主体> <谓词> <值>]\n"
+                "例：[CMD:df_remember 王博 also_known_as 王老板]"
+            )
+        subject, predicate, value = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        f = self.memory.remember(subject, predicate, value, source="ai")
+        return f"✅ 已记下：{subject} · {predicate} = {value} (id={f.fact_id})"
 
-    @classmethod
-    def _save_notes(cls, notes: list[str]) -> None:
-        import json
-        from pathlib import Path
-        p = Path(cls.NOTES_PATH)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(notes, ensure_ascii=False, indent=2), encoding="utf-8")
+    def df_recall(self, args: str) -> str:
+        """调出关于某人的所有事实，含顺藤摸瓜的别名链。"""
+        subject = args.strip()
+        if not subject:
+            return "用法：[CMD:df_recall <主体>]"
+        # 用 retrieval 的别名解析逻辑找等价 subject
+        from gamebot.core.memory.retrieval import _resolve_canonical
+        equivalents = _resolve_canonical(self.memory.facts, subject)
+        all_facts = []
+        for s in equivalents:
+            all_facts.extend(self.memory.recall(s))
+        if not all_facts:
+            return f"关于「{subject}」目前没有任何记录"
+        # 按 subject 分组渲染
+        by_subj: dict[str, list] = {}
+        for f in all_facts:
+            by_subj.setdefault(f.subject, []).append(f)
+        lines = [f"📚 关于「{subject}」的全部 facts（顺藤摸瓜含 {len(equivalents)} 个等价名）："]
+        for s, facts in by_subj.items():
+            lines.append(f"  • {s}:")
+            for f in facts:
+                lines.append(f"      - {f.predicate} = {f.value}  [src:{f.source}]")
+        return "\n".join(lines)
 
     def df_note(self, args: str) -> str:
-        """把一条自由文本笔记追加进队员档案。重启保留。"""
+        """自由文本笔记。会尝试从文本里抽 subject，抽不出来归到 squad。"""
         text = args.strip()
         if not text:
             return "用法：[CMD:df_note <一句话>]"
-        notes = self._load_notes()
-        # 去重：完全相同的不重复加
-        if text in notes:
-            return f"已存在相同笔记：「{text}」"
-        notes.append(text)
-        self._save_notes(notes)
-        return f"✅ 已记录第 {len(notes)} 条笔记：「{text}」"
-
-    def df_notes(self, args: str) -> str:
-        notes = self._load_notes()
-        if not notes:
-            return "还没有任何队员档案笔记"
-        lines = ["📝 当前队员档案笔记："]
-        for i, n in enumerate(notes, 1):
-            lines.append(f"  {i}. {n}")
-        return "\n".join(lines)
-
-    def df_clear_notes(self, args: str) -> str:
-        idx_str = args.strip()
-        notes = self._load_notes()
-        if not idx_str:
-            return "用法：[CMD:df_clear_notes <序号>]，先用 [CMD:df_notes] 看序号"
-        try:
-            idx = int(idx_str)
-        except ValueError:
-            return f"序号必须是数字，收到「{idx_str}」"
-        if not 1 <= idx <= len(notes):
-            return f"序号 {idx} 超范围（共 {len(notes)} 条）"
-        removed = notes.pop(idx - 1)
-        self._save_notes(notes)
-        return f"✅ 已删除：「{removed}」"
+        # 启发式：开头中文 + 动词 → subject
+        import re as _re
+        m = _re.match(r"^([一-鿿]{2,7})(?:是|玩|主|双修|擅长|喜欢|常用)", text)
+        subj = m.group(1) if m else "squad"
+        # 检查已知 subject 优先
+        for s in self.memory.all_subjects():
+            if text.startswith(s):
+                subj = s
+                break
+        self.memory.remember(subj, "note", text, source="ai")
+        self.memory.add_episode("note_added", text, actors=[subj] if subj != "squad" else [])
+        return f"✅ 已记录笔记到「{subj}」：{text}"
 
     def df_unknowns(self, args: str) -> str:
         """找出最近战绩里"经常一起开黑但没注册 alias 的队友干员 ID"。
@@ -503,16 +506,20 @@ class DFAbilities:
         text = _re.sub(r"^<!--.*?-->\s*", "", text, count=1, flags=_re.DOTALL)
         return text
 
-    def build_system_prompt(self, group_id: int) -> str:
+    def build_system_prompt(self, group_id: int, user_message: str = "") -> str:
         """生成 DF 群专用 system prompt。
 
         模板在 gamebot/games/df/prompt.md，运行时用占位符填充。
         改 prompt 文案 → 直接编辑 .md 文件，**不用动代码**。下一条群消息就生效。
+
+        user_message: 当前用户消息，用来按 query 智能 surface 相关记忆。
+                     传空字符串则不做检索（启动时调用、定时任务等场景）
         """
         from df_stats.maps import OPERATOR_NAMES
 
         tool_list = "\n".join(f"- {v}" for v in TOOL_DESCRIPTIONS.values())
 
+        # alias_block 保留供 prompt 兜底（万一 retrieval 没命中）
         aliases = self.aliases.all()
         if aliases:
             alias_lines = []
@@ -525,8 +532,15 @@ class DFAbilities:
 
         known_op_list = "、".join(sorted(OPERATOR_NAMES.values()))
 
-        notes = self._load_notes()
-        notes_block = "\n".join(f"  - {n}" for n in notes) if notes else "  （暂无）"
+        # 智能 memory 检索：根据当前消息内容只 surface 相关 facts + episodes
+        if user_message:
+            relevant_memory = self.memory.context_for_message(user_message, max_facts=20, max_episodes=5)
+        else:
+            relevant_memory = "（消息上下文为空，未做检索）"
+
+        # notes_block 兼容老 prompt（如果还在用），从 memory 拿 predicate="note" 的事实
+        note_facts = self.memory.find_facts(predicate="note")
+        notes_block = "\n".join(f"  - {f.value}" for f in note_facts) if note_facts else "  （暂无）"
 
         template = self._load_prompt_template()
         try:
@@ -536,6 +550,7 @@ class DFAbilities:
                 tool_list=tool_list,
                 known_op_list=known_op_list,
                 group_id=group_id,
+                relevant_memory=relevant_memory,
             )
         except KeyError as e:
             return template + f"\n\n[警告: prompt.md 引用了未知占位符 {e}]"

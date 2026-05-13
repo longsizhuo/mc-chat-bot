@@ -15,10 +15,11 @@
 
 | 文件 | 职责 |
 |---|---|
-| `bridge.py` | `DFStatsBridge` —— 路由群消息、定时广播、关键词识别、AI converse 循环。`reply()` 接收 `at_qq_list` 处理 @ 引用 |
-| `abilities.py` | `DFAbilities` —— LLM 工具集（包括 `df_set_alias` / `df_note` / `df_lookup` 等），`build_system_prompt()` 从 `prompt.md` 读模板 |
-| `aliases.py` | `DFAliases` —— 群友昵称 ↔ 干员 ID 映射，含模糊匹配 + "@XX 为 YY" 句式解析 |
-| **`prompt.md`** | **system prompt 模板**（教练人设、工具调用纪律、各种语义识别规则）。改 prompt 文案直接编辑这个 `.md` 文件，下一条群消息就生效，**不用动代码** |
+| `bridge.py` | `DFStatsBridge` —— 路由群消息、定时广播、关键词识别、AI converse 循环。构造 `GameMemory` 实例供 aliases/abilities 使用 |
+| `abilities.py` | `DFAbilities` —— LLM 工具集（含 `df_remember` / `df_recall` 等 memory 工具），`build_system_prompt(user_message)` 从 `prompt.md` 读模板，调用 `memory.context_for_message()` 智能 surface 相关记忆 |
+| `aliases.py` | `DFAliases` —— 群友昵称 ↔ 干员 ID 映射（**已重构为 GameMemory backend**），含模糊匹配 + "@XX 为 YY" 句式解析。所有 alias 现在以 `Fact(subject=nick, predicate="alias_to_op")` 形式存在 memory 里 |
+| **`prompt.md`** | **system prompt 模板**。包含 `{relevant_memory}` 占位符，由 retrieval 按本条消息内容动态填充。改 prompt 文案直接编辑这个 `.md` 文件，下一条群消息就生效 |
+| `migrate_to_memory.py` | 一次性迁移脚本：把旧的 `df_aliases.json` / `df_squad_notes.json` / `df_extra_ops.json` 导入新 memory。已跑过，旧文件保留作为备份 |
 
 ## AI 工具列表
 
