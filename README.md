@@ -77,8 +77,8 @@
 
 **独有亮点**：
 - 🧠 **教练人设**：system prompt 在 [`prompt.md`](./gamebot/games/df/prompt.md)，不动代码就能改 AI 性格
+- 🪄 **Agent memory**（仿 [Hermes](https://github.com/NousResearch/hermes-agent) / [OpenClaw](https://github.com/openclaw/openclaw)）：SPO 三元组事实 + 时序事件流 + 按 query 智能 surface。"王老板/王博/王十十十十十寸" 三别名顺藤摸瓜认作一人，bot 不重学（见 [`gamebot/core/memory/`](./gamebot/core/memory/README.md)）
 - 🔍 **排除法识别队友**：3 人开黑 + 已注册 alias 反推未识别队友是谁
-- 📝 **持久化队员档案**：群友说"风格一双修医疗+信息"自动存盘
 - 🌐 **未知干员自动 lookup**：遇到没收录的 5 位数 ID 自动查 luoy-oss 社区表
 - 🚪 **严格群隔离**：DF 功能限定在三角洲群，不污染 MC 主群
 - ⏰ **每天 06:00 自动播报地图密码**
