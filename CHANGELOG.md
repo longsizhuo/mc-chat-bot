@@ -10,6 +10,7 @@
 
 ## 2026-05-13
 
+- **`3100fc1` feat(df)**: DF bot 三处改进。(1) AI 人设从"毒舌分析师"改成"战术教练"，system prompt 显式禁用"别头铁/真菜"等评判式用词，给具体可执行建议而不嘲讽；(2) 修 CQ:at 主语丢失 bug——core/qq_bridge.py 加 `resolve_at_mentions()` 调 OneBot 把 `[CQ:at,qq=XXX]` 换成 `@群名片`，aliases.py 加 `@老王 为 牧羊人` / `更正—@老王 为 麦小雯` 句式识别；(3) 加 `df_lookup` / `df_register_op` 工具，bot 遇到不认识的干员/陌生 5 位数 ID 时自动查 luoy-oss 远程社区表，学到新干员可持久化到 `data/df_extra_ops.json`。顺手补 OPERATOR_NAMES：10012=疾风（S5 突击新干员）。
 - **`21f3f12` feat+refactor**: 三角洲行动 QQ bot + gamebot/ 三层架构。新增 `scripts/df_stats/` CLI（封装腾讯 AMS：战绩/生涯/9 个赛季/每日密码，9 个分析命令），新增 `gamebot/games/df/` 桥接（定时 06:00 播报密码 + 关键词触发 + 干员别名"我玩XX"模糊匹配 + AI tool 调用 `[CMD:df_*]`），严格群隔离（DF 功能限定 257381453 群）。同时把 `mcbot/` 整体 refactor 成 `gamebot/{core,games/{mc,df}}` 三层架构：`core/` 放 LLM provider + OneBot QQ 桥（平台无关），`games/mc/` 是原 mcbot 整体迁移（28 个文件，相对 import 全保留），`games/df/` 是新模块。修复 refactor 引入的 `Path(__file__).parent.parent` 路径 bug（影响 8 处 `data/*.json` runtime state）。新增 `CLAUDE.md` 强调改代码必须同步改文档 + 每个子目录补 README.md。配置文件新增 `df_stats:` 段（4 个 curl 路径 + 别名表 + 广播时刻），`qq:` 段新增 `extra_group_ids`。
 
 ---
