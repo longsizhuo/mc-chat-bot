@@ -14,6 +14,7 @@ JSON 文件存储（少量数据下足够快）。后续可以无缝换成 SQLit
 from __future__ import annotations
 
 import json
+import os
 import threading
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -81,16 +82,27 @@ class FactStore:
             self._facts = {}
 
     def _save(self) -> None:
+        """原子写入：tmp 文件 → fsync → os.replace。
+
+        防止进程崩溃 / 断电时 facts.json 部分写入变成无效 JSON 导致下次加载
+        清零（群友档案瞬间归零的事故）。
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         # 序列化：转 dict，按 added_at 排序（稳定输出方便 diff）
         facts_list = sorted(
             (f.to_dict() for f in self._facts.values()),
             key=lambda d: d["added_at"],
         )
-        self.path.write_text(
-            json.dumps({"facts": facts_list}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        payload = json.dumps({"facts": facts_list}, ensure_ascii=False, indent=2)
+
+        tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
+        # 写 tmp + fsync 保证落盘
+        with tmp_path.open("w", encoding="utf-8") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        # 原子 rename（POSIX 保证 same-filesystem 原子性）
+        os.replace(tmp_path, self.path)
 
     # ---- CRUD ----
 

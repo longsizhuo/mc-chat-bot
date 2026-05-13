@@ -3,6 +3,7 @@
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .config import Config
@@ -139,6 +140,12 @@ class ChatBot:
                 # 跟 MC bot 共用同一个 AI provider（DeepSeek/OpenAI/...）
                 ai_provider=self.ai if config.df_stats.enable_ai else None,
             )
+
+        # QQ 消息处理线程池：让 LLM 长调用不阻塞 WS 接收线程
+        # 不加这个的话 DF 群一次工具循环可能花 120s，期间 MC 主群也无响应
+        # 4 workers 够同时处理两个群的 LLM + 一些短期突发
+        self._qq_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="qq-handler")
+
         self.system_prompt = build_system_prompt(
             bot_name=config.bot.name,
             language=config.bot.language,
@@ -533,21 +540,65 @@ class ChatBot:
             self.qq.forward_mc_event("bot", f"[{self.bot_name}] {message}")
 
     def _on_qq_message(self, group_id: int, nickname: str, message: str):
-        """Handle message from QQ group → 按群路由 → AI 回复 / 三角洲 / 投票。
+        """QQBridge WS 线程的回调。**只做 dispatch**，真正处理走线程池。
 
-        - 三角洲群：只走 DF 桥接（关键词 + 别名学习），不走 AI 不转发到 MC
-        - MC 主群：原有逻辑（投票、AI、转发到游戏内）
+        这样 LLM 调用（最长 120s）不会阻塞 WS 接收，多个群同时活跃也不互相挤。
+        """
+        # 提交到 executor，立即返回让 WS 线程继续收下一条
+        try:
+            self._qq_executor.submit(
+                self._handle_qq_message_sync, group_id, nickname, message
+            )
+        except RuntimeError as e:
+            # executor 已 shutdown（bot 正在退出）
+            print(f"[MCBot] QQ msg dispatch failed: {e}")
+
+    def _memory_maintenance_loop(self):
+        """Memory 后台维护：启动时 rebuild FTS5，之后每 6 小时 prune 一次老 episode。
+
+        Code review 指出 search.py + summarize.py 之前是死代码（grep 零调用），
+        这里真接上让它们不是 manifest 摆设。
+        """
+        from gamebot.core.memory.summarize import prune_old_episodes
+
+        # 启动时 rebuild 一次：让 FTS5 索引追上当前数据
+        for memory_label, memory in [
+            ("DF", self.df_stats.memory if self.df_stats else None),
+            ("MC", self.game_memory),
+        ]:
+            if memory is None:
+                continue
+            try:
+                stats = memory.rebuild_search()
+                print(f"[Memory] {memory_label} FTS5 索引重建: {stats}")
+            except Exception as e:
+                print(f"[Memory] {memory_label} FTS5 索引重建失败: {e}")
+
+        # 之后每 6 小时跑一次 prune + 增量 rebuild
+        SIX_HOURS = 6 * 3600
+        while True:
+            time.sleep(SIX_HOURS)
+            for memory_label, memory in [
+                ("DF", self.df_stats.memory if self.df_stats else None),
+                ("MC", self.game_memory),
+            ]:
+                if memory is None:
+                    continue
+                try:
+                    pruned = prune_old_episodes(memory.episodes)
+                    rebuilt = memory.rebuild_search()
+                    print(f"[Memory] {memory_label} maintenance: pruned={pruned} rebuilt={rebuilt}")
+                except Exception as e:
+                    print(f"[Memory] {memory_label} maintenance error: {e}")
+
+    def _handle_qq_message_sync(self, group_id: int, nickname: str, message: str):
+        """实际处理 QQ 消息的同步逻辑。跑在 worker 线程里。
 
         预处理：把 [CQ:at,qq=XXX] 解析成 @群名片（含 bot 自己的 at 会一起替换），
         让 AI 看到的是带主语的完整人话，不是被剥光后的破碎片段。
         """
         if self.qq:
             clean_msg, at_qq_list = self.qq.resolve_at_mentions(group_id, message)
-            # bot 自己的 at 在 AI 看来不必要，做二次替换去掉
-            try:
-                self_id = self.qq.self_id  # 可能不存在
-            except AttributeError:
-                self_id = 0
         else:
             import re
             clean_msg = re.sub(r"\[CQ:[^\]]+\]", "", message).strip()
@@ -766,6 +817,11 @@ class ChatBot:
         # 启动三角洲数据桥接（每日密码 06:00 广播）
         if self.df_stats:
             self.df_stats.start()
+
+        # 启动 memory 维护线程（FTS5 重建 + 老 episode 修剪）
+        # 之前 search.py / summarize.py 写了但没接调度，是死代码；这里真接上
+        threading.Thread(target=self._memory_maintenance_loop, daemon=True).start()
+        print("[Memory] 维护线程已启动（启动时 rebuild FTS5，之后每 6h prune 一次）")
 
         # 启动留言板 HTTP 服务（接收网站 POST / 提供 GET）
         self.messageboard.start()

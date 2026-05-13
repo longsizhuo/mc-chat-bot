@@ -115,7 +115,12 @@ def summarize_into_facts(
     recent = []
     for e in episodes:
         ts = _parse_iso(e.timestamp)
-        if ts and (ts.tzinfo or ts.replace(tzinfo=timezone.utc) >= cutoff):
+        if ts is None:
+            continue
+        # naive datetime fallback：把无时区的 ts 当成 UTC
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if ts >= cutoff:
             recent.append(e)
 
     if not recent:
